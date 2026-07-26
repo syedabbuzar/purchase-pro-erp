@@ -238,10 +238,10 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
           <Share2 className="h-4 w-4 mr-1" />Share
         </Button>
         <Button size="sm" variant="outline" asChild>
-          <Link to="/billing" search={{ duplicate: invoiceId }}><Copy className="h-4 w-4 mr-1" />Duplicate Invoice</Link>
+          <Link to={`/billing?duplicate=${invoiceId}`}><Copy className="h-4 w-4 mr-1" />Duplicate Invoice</Link>
         </Button>
         <Button size="sm" variant="outline" disabled={!canModify || returnTotal > 0} asChild={canModify && returnTotal === 0}>
-          {canModify && returnTotal === 0 ? <Link to="/billing" search={{ edit: invoiceId }}><Pencil className="h-4 w-4 mr-1" />Edit Invoice</Link> : <span><Pencil className="h-4 w-4 mr-1" />Edit Invoice</span>}
+          {canModify && returnTotal === 0 ? <Link to={`/billing?edit=${invoiceId}`}><Pencil className="h-4 w-4 mr-1" />Edit Invoice</Link> : <span><Pencil className="h-4 w-4 mr-1" />Edit Invoice</span>}
         </Button>
         <Button size="sm" variant="outline" onClick={openReturnDialog} disabled={!canModify}>
           <RotateCcw className="h-4 w-4 mr-1" />Return Item
@@ -253,7 +253,7 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
           <Link to="/invoices"><History className="h-4 w-4 mr-1" />Invoice History</Link>
         </Button>
         <Button size="sm" variant="outline" asChild>
-          <Link to="/customers/$id" params={{ id: String(customer.id) }}><User className="h-4 w-4 mr-1" />Customer History</Link>
+          <Link to={`/customers/${customer.id}`}><User className="h-4 w-4 mr-1" />Customer History</Link>
         </Button>
         <Button size="sm" variant="outline" asChild>
           <Link to="/dashboard"><LayoutDashboard className="h-4 w-4 mr-1" />Back to Dashboard</Link>
