@@ -9,38 +9,315 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedStockRouteImport } from './routes/_authenticated.stock'
+import { Route as AuthenticatedPurchasesRouteImport } from './routes/_authenticated.purchases'
+import { Route as AuthenticatedProductsRouteImport } from './routes/_authenticated.products'
+import { Route as AuthenticatedInvoicesRouteImport } from './routes/_authenticated.invoices'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedCustomersRouteImport } from './routes/_authenticated.customers'
+import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated.billing'
+import { Route as AuthenticatedSettingsUsersRouteImport } from './routes/_authenticated.settings.users'
+import { Route as AuthenticatedSettingsCompanyRouteImport } from './routes/_authenticated.settings.company'
+import { Route as AuthenticatedSettingsBackupRouteImport } from './routes/_authenticated.settings.backup'
+import { Route as AuthenticatedReportsSalesRouteImport } from './routes/_authenticated.reports.sales'
+import { Route as AuthenticatedReportsGstr3bRouteImport } from './routes/_authenticated.reports.gstr3b'
+import { Route as AuthenticatedReportsGstr1B2bRouteImport } from './routes/_authenticated.reports.gstr1-b2b'
+import { Route as AuthenticatedReportsGstB2bExportRouteImport } from './routes/_authenticated.reports.gst-b2b-export'
+import { Route as AuthenticatedReportsGstRouteImport } from './routes/_authenticated.reports.gst'
+import { Route as AuthenticatedReportsDailyRouteImport } from './routes/_authenticated.reports.daily'
+import { Route as AuthenticatedInvoicePreviewIdRouteImport } from './routes/_authenticated.invoice-preview.$id'
+import { Route as AuthenticatedCustomersIdRouteImport } from './routes/_authenticated.customers.$id'
+import { Route as AuthenticatedBillingIdRouteImport } from './routes/_authenticated.billing.$id'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedStockRoute = AuthenticatedStockRouteImport.update({
+  id: '/stock',
+  path: '/stock',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedPurchasesRoute = AuthenticatedPurchasesRouteImport.update({
+  id: '/purchases',
+  path: '/purchases',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedProductsRoute = AuthenticatedProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedInvoicesRoute = AuthenticatedInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedCustomersRoute = AuthenticatedCustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSettingsUsersRoute =
+  AuthenticatedSettingsUsersRouteImport.update({
+    id: '/settings/users',
+    path: '/settings/users',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsCompanyRoute =
+  AuthenticatedSettingsCompanyRouteImport.update({
+    id: '/settings/company',
+    path: '/settings/company',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsBackupRoute =
+  AuthenticatedSettingsBackupRouteImport.update({
+    id: '/settings/backup',
+    path: '/settings/backup',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedReportsSalesRoute =
+  AuthenticatedReportsSalesRouteImport.update({
+    id: '/reports/sales',
+    path: '/reports/sales',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedReportsGstr3bRoute =
+  AuthenticatedReportsGstr3bRouteImport.update({
+    id: '/reports/gstr3b',
+    path: '/reports/gstr3b',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedReportsGstr1B2bRoute =
+  AuthenticatedReportsGstr1B2bRouteImport.update({
+    id: '/reports/gstr1-b2b',
+    path: '/reports/gstr1-b2b',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedReportsGstB2bExportRoute =
+  AuthenticatedReportsGstB2bExportRouteImport.update({
+    id: '/reports/gst-b2b-export',
+    path: '/reports/gst-b2b-export',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedReportsGstRoute = AuthenticatedReportsGstRouteImport.update({
+  id: '/reports/gst',
+  path: '/reports/gst',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedReportsDailyRoute =
+  AuthenticatedReportsDailyRouteImport.update({
+    id: '/reports/daily',
+    path: '/reports/daily',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedInvoicePreviewIdRoute =
+  AuthenticatedInvoicePreviewIdRouteImport.update({
+    id: '/invoice-preview/$id',
+    path: '/invoice-preview/$id',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCustomersIdRoute =
+  AuthenticatedCustomersIdRouteImport.update({
+    id: '/$id',
+    path: '/$id',
+    getParentRoute: () => AuthenticatedCustomersRoute,
+  } as any)
+const AuthenticatedBillingIdRoute = AuthenticatedBillingIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AuthenticatedBillingRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/billing': typeof AuthenticatedBillingRouteWithChildren
+  '/customers': typeof AuthenticatedCustomersRouteWithChildren
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/invoices': typeof AuthenticatedInvoicesRoute
+  '/products': typeof AuthenticatedProductsRoute
+  '/purchases': typeof AuthenticatedPurchasesRoute
+  '/stock': typeof AuthenticatedStockRoute
+  '/billing/$id': typeof AuthenticatedBillingIdRoute
+  '/customers/$id': typeof AuthenticatedCustomersIdRoute
+  '/invoice-preview/$id': typeof AuthenticatedInvoicePreviewIdRoute
+  '/reports/daily': typeof AuthenticatedReportsDailyRoute
+  '/reports/gst': typeof AuthenticatedReportsGstRoute
+  '/reports/gst-b2b-export': typeof AuthenticatedReportsGstB2bExportRoute
+  '/reports/gstr1-b2b': typeof AuthenticatedReportsGstr1B2bRoute
+  '/reports/gstr3b': typeof AuthenticatedReportsGstr3bRoute
+  '/reports/sales': typeof AuthenticatedReportsSalesRoute
+  '/settings/backup': typeof AuthenticatedSettingsBackupRoute
+  '/settings/company': typeof AuthenticatedSettingsCompanyRoute
+  '/settings/users': typeof AuthenticatedSettingsUsersRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/billing': typeof AuthenticatedBillingRouteWithChildren
+  '/customers': typeof AuthenticatedCustomersRouteWithChildren
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/invoices': typeof AuthenticatedInvoicesRoute
+  '/products': typeof AuthenticatedProductsRoute
+  '/purchases': typeof AuthenticatedPurchasesRoute
+  '/stock': typeof AuthenticatedStockRoute
+  '/billing/$id': typeof AuthenticatedBillingIdRoute
+  '/customers/$id': typeof AuthenticatedCustomersIdRoute
+  '/invoice-preview/$id': typeof AuthenticatedInvoicePreviewIdRoute
+  '/reports/daily': typeof AuthenticatedReportsDailyRoute
+  '/reports/gst': typeof AuthenticatedReportsGstRoute
+  '/reports/gst-b2b-export': typeof AuthenticatedReportsGstB2bExportRoute
+  '/reports/gstr1-b2b': typeof AuthenticatedReportsGstr1B2bRoute
+  '/reports/gstr3b': typeof AuthenticatedReportsGstr3bRoute
+  '/reports/sales': typeof AuthenticatedReportsSalesRoute
+  '/settings/backup': typeof AuthenticatedSettingsBackupRoute
+  '/settings/company': typeof AuthenticatedSettingsCompanyRoute
+  '/settings/users': typeof AuthenticatedSettingsUsersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/billing': typeof AuthenticatedBillingRouteWithChildren
+  '/_authenticated/customers': typeof AuthenticatedCustomersRouteWithChildren
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/invoices': typeof AuthenticatedInvoicesRoute
+  '/_authenticated/products': typeof AuthenticatedProductsRoute
+  '/_authenticated/purchases': typeof AuthenticatedPurchasesRoute
+  '/_authenticated/stock': typeof AuthenticatedStockRoute
+  '/_authenticated/billing/$id': typeof AuthenticatedBillingIdRoute
+  '/_authenticated/customers/$id': typeof AuthenticatedCustomersIdRoute
+  '/_authenticated/invoice-preview/$id': typeof AuthenticatedInvoicePreviewIdRoute
+  '/_authenticated/reports/daily': typeof AuthenticatedReportsDailyRoute
+  '/_authenticated/reports/gst': typeof AuthenticatedReportsGstRoute
+  '/_authenticated/reports/gst-b2b-export': typeof AuthenticatedReportsGstB2bExportRoute
+  '/_authenticated/reports/gstr1-b2b': typeof AuthenticatedReportsGstr1B2bRoute
+  '/_authenticated/reports/gstr3b': typeof AuthenticatedReportsGstr3bRoute
+  '/_authenticated/reports/sales': typeof AuthenticatedReportsSalesRoute
+  '/_authenticated/settings/backup': typeof AuthenticatedSettingsBackupRoute
+  '/_authenticated/settings/company': typeof AuthenticatedSettingsCompanyRoute
+  '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/billing'
+    | '/customers'
+    | '/dashboard'
+    | '/invoices'
+    | '/products'
+    | '/purchases'
+    | '/stock'
+    | '/billing/$id'
+    | '/customers/$id'
+    | '/invoice-preview/$id'
+    | '/reports/daily'
+    | '/reports/gst'
+    | '/reports/gst-b2b-export'
+    | '/reports/gstr1-b2b'
+    | '/reports/gstr3b'
+    | '/reports/sales'
+    | '/settings/backup'
+    | '/settings/company'
+    | '/settings/users'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/billing'
+    | '/customers'
+    | '/dashboard'
+    | '/invoices'
+    | '/products'
+    | '/purchases'
+    | '/stock'
+    | '/billing/$id'
+    | '/customers/$id'
+    | '/invoice-preview/$id'
+    | '/reports/daily'
+    | '/reports/gst'
+    | '/reports/gst-b2b-export'
+    | '/reports/gstr1-b2b'
+    | '/reports/gstr3b'
+    | '/reports/sales'
+    | '/settings/backup'
+    | '/settings/company'
+    | '/settings/users'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/billing'
+    | '/_authenticated/customers'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/invoices'
+    | '/_authenticated/products'
+    | '/_authenticated/purchases'
+    | '/_authenticated/stock'
+    | '/_authenticated/billing/$id'
+    | '/_authenticated/customers/$id'
+    | '/_authenticated/invoice-preview/$id'
+    | '/_authenticated/reports/daily'
+    | '/_authenticated/reports/gst'
+    | '/_authenticated/reports/gst-b2b-export'
+    | '/_authenticated/reports/gstr1-b2b'
+    | '/_authenticated/reports/gstr3b'
+    | '/_authenticated/reports/sales'
+    | '/_authenticated/settings/backup'
+    | '/_authenticated/settings/company'
+    | '/_authenticated/settings/users'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +325,216 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/stock': {
+      id: '/_authenticated/stock'
+      path: '/stock'
+      fullPath: '/stock'
+      preLoaderRoute: typeof AuthenticatedStockRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/purchases': {
+      id: '/_authenticated/purchases'
+      path: '/purchases'
+      fullPath: '/purchases'
+      preLoaderRoute: typeof AuthenticatedPurchasesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/products': {
+      id: '/_authenticated/products'
+      path: '/products'
+      fullPath: '/products'
+      preLoaderRoute: typeof AuthenticatedProductsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/invoices': {
+      id: '/_authenticated/invoices'
+      path: '/invoices'
+      fullPath: '/invoices'
+      preLoaderRoute: typeof AuthenticatedInvoicesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/customers': {
+      id: '/_authenticated/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof AuthenticatedCustomersRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/billing': {
+      id: '/_authenticated/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AuthenticatedBillingRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/users': {
+      id: '/_authenticated/settings/users'
+      path: '/settings/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof AuthenticatedSettingsUsersRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/company': {
+      id: '/_authenticated/settings/company'
+      path: '/settings/company'
+      fullPath: '/settings/company'
+      preLoaderRoute: typeof AuthenticatedSettingsCompanyRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/backup': {
+      id: '/_authenticated/settings/backup'
+      path: '/settings/backup'
+      fullPath: '/settings/backup'
+      preLoaderRoute: typeof AuthenticatedSettingsBackupRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/sales': {
+      id: '/_authenticated/reports/sales'
+      path: '/reports/sales'
+      fullPath: '/reports/sales'
+      preLoaderRoute: typeof AuthenticatedReportsSalesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/gstr3b': {
+      id: '/_authenticated/reports/gstr3b'
+      path: '/reports/gstr3b'
+      fullPath: '/reports/gstr3b'
+      preLoaderRoute: typeof AuthenticatedReportsGstr3bRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/gstr1-b2b': {
+      id: '/_authenticated/reports/gstr1-b2b'
+      path: '/reports/gstr1-b2b'
+      fullPath: '/reports/gstr1-b2b'
+      preLoaderRoute: typeof AuthenticatedReportsGstr1B2bRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/gst-b2b-export': {
+      id: '/_authenticated/reports/gst-b2b-export'
+      path: '/reports/gst-b2b-export'
+      fullPath: '/reports/gst-b2b-export'
+      preLoaderRoute: typeof AuthenticatedReportsGstB2bExportRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/gst': {
+      id: '/_authenticated/reports/gst'
+      path: '/reports/gst'
+      fullPath: '/reports/gst'
+      preLoaderRoute: typeof AuthenticatedReportsGstRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/reports/daily': {
+      id: '/_authenticated/reports/daily'
+      path: '/reports/daily'
+      fullPath: '/reports/daily'
+      preLoaderRoute: typeof AuthenticatedReportsDailyRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/invoice-preview/$id': {
+      id: '/_authenticated/invoice-preview/$id'
+      path: '/invoice-preview/$id'
+      fullPath: '/invoice-preview/$id'
+      preLoaderRoute: typeof AuthenticatedInvoicePreviewIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/customers/$id': {
+      id: '/_authenticated/customers/$id'
+      path: '/$id'
+      fullPath: '/customers/$id'
+      preLoaderRoute: typeof AuthenticatedCustomersIdRouteImport
+      parentRoute: typeof AuthenticatedCustomersRoute
+    }
+    '/_authenticated/billing/$id': {
+      id: '/_authenticated/billing/$id'
+      path: '/$id'
+      fullPath: '/billing/$id'
+      preLoaderRoute: typeof AuthenticatedBillingIdRouteImport
+      parentRoute: typeof AuthenticatedBillingRoute
+    }
   }
 }
 
+interface AuthenticatedBillingRouteChildren {
+  AuthenticatedBillingIdRoute: typeof AuthenticatedBillingIdRoute
+}
+
+const AuthenticatedBillingRouteChildren: AuthenticatedBillingRouteChildren = {
+  AuthenticatedBillingIdRoute: AuthenticatedBillingIdRoute,
+}
+
+const AuthenticatedBillingRouteWithChildren =
+  AuthenticatedBillingRoute._addFileChildren(AuthenticatedBillingRouteChildren)
+
+interface AuthenticatedCustomersRouteChildren {
+  AuthenticatedCustomersIdRoute: typeof AuthenticatedCustomersIdRoute
+}
+
+const AuthenticatedCustomersRouteChildren: AuthenticatedCustomersRouteChildren =
+  {
+    AuthenticatedCustomersIdRoute: AuthenticatedCustomersIdRoute,
+  }
+
+const AuthenticatedCustomersRouteWithChildren =
+  AuthenticatedCustomersRoute._addFileChildren(
+    AuthenticatedCustomersRouteChildren,
+  )
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedBillingRoute: typeof AuthenticatedBillingRouteWithChildren
+  AuthenticatedCustomersRoute: typeof AuthenticatedCustomersRouteWithChildren
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedInvoicesRoute: typeof AuthenticatedInvoicesRoute
+  AuthenticatedProductsRoute: typeof AuthenticatedProductsRoute
+  AuthenticatedPurchasesRoute: typeof AuthenticatedPurchasesRoute
+  AuthenticatedStockRoute: typeof AuthenticatedStockRoute
+  AuthenticatedInvoicePreviewIdRoute: typeof AuthenticatedInvoicePreviewIdRoute
+  AuthenticatedReportsDailyRoute: typeof AuthenticatedReportsDailyRoute
+  AuthenticatedReportsGstRoute: typeof AuthenticatedReportsGstRoute
+  AuthenticatedReportsGstB2bExportRoute: typeof AuthenticatedReportsGstB2bExportRoute
+  AuthenticatedReportsGstr1B2bRoute: typeof AuthenticatedReportsGstr1B2bRoute
+  AuthenticatedReportsGstr3bRoute: typeof AuthenticatedReportsGstr3bRoute
+  AuthenticatedReportsSalesRoute: typeof AuthenticatedReportsSalesRoute
+  AuthenticatedSettingsBackupRoute: typeof AuthenticatedSettingsBackupRoute
+  AuthenticatedSettingsCompanyRoute: typeof AuthenticatedSettingsCompanyRoute
+  AuthenticatedSettingsUsersRoute: typeof AuthenticatedSettingsUsersRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedBillingRoute: AuthenticatedBillingRouteWithChildren,
+  AuthenticatedCustomersRoute: AuthenticatedCustomersRouteWithChildren,
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedInvoicesRoute: AuthenticatedInvoicesRoute,
+  AuthenticatedProductsRoute: AuthenticatedProductsRoute,
+  AuthenticatedPurchasesRoute: AuthenticatedPurchasesRoute,
+  AuthenticatedStockRoute: AuthenticatedStockRoute,
+  AuthenticatedInvoicePreviewIdRoute: AuthenticatedInvoicePreviewIdRoute,
+  AuthenticatedReportsDailyRoute: AuthenticatedReportsDailyRoute,
+  AuthenticatedReportsGstRoute: AuthenticatedReportsGstRoute,
+  AuthenticatedReportsGstB2bExportRoute: AuthenticatedReportsGstB2bExportRoute,
+  AuthenticatedReportsGstr1B2bRoute: AuthenticatedReportsGstr1B2bRoute,
+  AuthenticatedReportsGstr3bRoute: AuthenticatedReportsGstr3bRoute,
+  AuthenticatedReportsSalesRoute: AuthenticatedReportsSalesRoute,
+  AuthenticatedSettingsBackupRoute: AuthenticatedSettingsBackupRoute,
+  AuthenticatedSettingsCompanyRoute: AuthenticatedSettingsCompanyRoute,
+  AuthenticatedSettingsUsersRoute: AuthenticatedSettingsUsersRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
