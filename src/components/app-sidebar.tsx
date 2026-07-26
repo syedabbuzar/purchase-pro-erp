@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Receipt, FileText, Package, Users, Boxes, TruckIcon,
   BarChart3, Percent, ClipboardList, Settings, DatabaseBackup, UserCog, Star, LogOut,
@@ -63,7 +63,7 @@ const groups = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const pathname = useLocation().pathname;
   const session = useAuth((s) => s.session);
   const logout = useAuth((s) => s.logout);
 
