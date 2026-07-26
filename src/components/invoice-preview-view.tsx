@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo, useState } from "react";
 import { db, type InvoiceItem, type InvoiceReturnItem } from "@/lib/db";
@@ -200,7 +200,7 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
     });
     setDeleteOpen(false);
     toast.success("Invoice deleted");
-    navigate({ to: "/invoices" });
+    navigate("/invoices");
   };
 
   const share = async () => {
@@ -219,7 +219,7 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 no-print">
-        <Button variant="outline" size="sm" onClick={() => navigate({ to: "/billing" })}>
+        <Button variant="outline" size="sm" onClick={() => navigate("/billing")}>
           <ArrowLeft className="h-4 w-4 mr-1" />Billing
         </Button>
         <h1 className="text-lg font-bold">Invoice {invoice.number}</h1>
