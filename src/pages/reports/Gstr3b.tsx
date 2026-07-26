@@ -180,4 +180,4 @@ function Gstr3B() {
   );
 }
 
-export default Section;
+export default Gstr3B;

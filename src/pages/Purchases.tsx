@@ -481,4 +481,4 @@ function Purchases() {
   );
 }
 
-export default totalPiecesOf;
+export default Purchases;
