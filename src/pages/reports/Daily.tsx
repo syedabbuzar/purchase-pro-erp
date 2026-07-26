@@ -76,3 +76,5 @@ function DailyDispatch() {
     </div>
   );
 }
+
+export default DailyDispatch;

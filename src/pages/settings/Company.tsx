@@ -58,3 +58,5 @@ function CompanySettings() {
     </div>
   );
 }
+
+export default CompanySettings;

@@ -110,3 +110,5 @@ function SalesReport() {
     </div>
   );
 }
+
+export default SalesReport;

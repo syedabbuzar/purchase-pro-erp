@@ -147,3 +147,5 @@ function GstB2BExport() {
     </div>
   );
 }
+
+export default GstB2BExport;

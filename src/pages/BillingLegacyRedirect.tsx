@@ -3,3 +3,5 @@ function LegacyInvoiceRedirect() {
   const { id } = useParams();
   return <Navigate to={`/invoice-preview/${id}`} replace />;
 }
+
+export default LegacyInvoiceRedirect;

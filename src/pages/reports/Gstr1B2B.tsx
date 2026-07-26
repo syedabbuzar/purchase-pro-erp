@@ -194,3 +194,5 @@ function GstrB2B() {
     </div>
   );
 }
+
+export default GstrB2B;

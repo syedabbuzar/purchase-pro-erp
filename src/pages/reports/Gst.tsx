@@ -87,3 +87,5 @@ function GstReport() {
     </div>
   );
 }
+
+export default GstReport;

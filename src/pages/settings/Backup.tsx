@@ -56,3 +56,5 @@ function Backup() {
     </div>
   );
 }
+
+export default Backup;

@@ -5,3 +5,5 @@ function InvoicePreviewPage() {
   const { id } = useParams();
   return <InvoicePreviewView invoiceId={Number(id)} />;
 }
+
+export default InvoicePreviewPage;

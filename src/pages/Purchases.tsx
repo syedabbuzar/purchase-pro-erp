@@ -480,3 +480,5 @@ function Purchases() {
     </div>
   );
 }
+
+export default totalPiecesOf;

@@ -91,3 +91,5 @@ function Invoices() {
     </div>
   );
 }
+
+export default Invoices;

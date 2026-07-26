@@ -106,3 +106,5 @@ function Customers() {
     </div>
   );
 }
+
+export default Customers;

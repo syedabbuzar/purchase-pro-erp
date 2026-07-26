@@ -179,3 +179,5 @@ function Gstr3B() {
     </div>
   );
 }
+
+export default Section;

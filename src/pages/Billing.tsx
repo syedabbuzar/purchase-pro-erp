@@ -398,3 +398,5 @@ function QuickCustomer({ onSaved }: { onSaved: (id: number) => void }) {
     </DialogContent>
   );
 }
+
+export default BillingPage;

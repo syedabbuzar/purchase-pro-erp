@@ -124,3 +124,5 @@ function CustomerProfile() {
     </div>
   );
 }
+
+export default CustomerProfile;
