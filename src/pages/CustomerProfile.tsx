@@ -10,7 +10,7 @@ import { exportMultiSheet } from "@/lib/xlsx-export";
 
 function CustomerProfile() {
   const { id } = useParams();
-  const cid = +id;
+  const cid = Number(id);
   const data = useLiveQuery(async () => {
     const c = await db.customers.get(cid);
     if (!c) return null;

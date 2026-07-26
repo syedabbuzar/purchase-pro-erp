@@ -65,9 +65,10 @@ function BillingPage() {
 
     let cancelled = false;
     async function loadInvoiceDraft() {
-      const invoice = await db.invoices.get(sourceId);
+      const sid = sourceId as number;
+      const invoice = await db.invoices.get(sid);
       if (!invoice || cancelled) return;
-      const items = (await db.invoiceItems.where("invoiceId").equals(sourceId).toArray()).sort((a, b) => a.srNo - b.srNo);
+      const items = (await db.invoiceItems.where("invoiceId").equals(sid).toArray()).sort((a, b) => a.srNo - b.srNo);
       if (cancelled) return;
       setCustomerId(invoice.customerId);
       setMeta({
