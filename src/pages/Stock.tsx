@@ -46,12 +46,13 @@ function Stock() {
 
   const exportAll = () => exportSheet(data.products.map((p) => {
     const s = data.stock.get(p.id!)!;
-    const opening = (p.openingBoxes || 0) * (p.boxSize || 1) + (p.openingPieces || 0);
+    const remBoxes = Math.floor(s.totalPieces / (p.boxSize || 1));
+    const remPieces = s.totalPieces - remBoxes * (p.boxSize || 1);
     return {
-      Name: p.name, HSN: p.hsn,
-      "Opening Boxes": p.openingBoxes || 0, "Pcs/Box": p.boxSize,
-      "Total Pieces": opening, Sold: Math.max(0, opening - s.totalPieces),
-      Remaining: s.totalPieces,
+      Name: p.name, HSN: p.hsn, "Pcs/Box": p.boxSize,
+      "Remaining Pieces": s.totalPieces,
+      "Remaining Boxes": remBoxes,
+      "Loose Pieces": remPieces,
       "Min Alert (boxes)": p.minStockAlert,
     };
   }), "stock.xlsx");
@@ -94,9 +95,8 @@ function Stock() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left"><tr>
               <th className="p-2">Product</th><th>HSN</th>
-              <th className="text-right">Opening Boxes</th>
               <th className="text-right">Pcs / Box</th>
-              <th className="text-right">Total Pieces</th>
+              <th className="text-right">Purchased</th>
               <th className="text-right">Sold</th>
               <th className="text-right">Remaining</th>
               <th>Alert</th><th></th>
@@ -104,8 +104,14 @@ function Stock() {
             <tbody>
               {filtered.map((p) => {
                 const s = data.stock.get(p.id!)!;
-                const openingTotal = (p.openingBoxes || 0) * (p.boxSize || 1) + (p.openingPieces || 0);
-                const sold = Math.max(0, openingTotal - s.totalPieces);
+                const entries = data.ledger.filter((e) => e.productId === p.id);
+                const bs = p.boxSize || 1;
+                let purchased = 0, sold = 0;
+                for (const e of entries) {
+                  const pieces = e.boxes * bs + e.pieces;
+                  if (pieces > 0) purchased += pieces;
+                  else sold += -pieces;
+                }
                 const remaining = s.totalPieces;
                 const remBoxes = Math.floor(remaining / (p.boxSize || 1));
                 const remPieces = remaining - remBoxes * (p.boxSize || 1);
@@ -114,9 +120,8 @@ function Stock() {
                   <tr key={p.id} className={"border-t " + (low ? "bg-destructive/10" : "")}>
                     <td className="p-2 font-medium">{p.name}</td>
                     <td>{p.hsn}</td>
-                    <td className="text-right">{p.openingBoxes || 0}</td>
                     <td className="text-right">{p.boxSize}</td>
-                    <td className="text-right">{openingTotal}</td>
+                    <td className="text-right text-green-700">{purchased}</td>
                     <td className="text-right text-destructive">{sold}</td>
                     <td className="text-right font-semibold text-green-700">
                       {remaining} <span className="text-muted-foreground text-xs">({remBoxes} box + {remPieces} pcs)</span>
