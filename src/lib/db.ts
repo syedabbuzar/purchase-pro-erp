@@ -46,8 +46,10 @@ export interface Product {
   minStockAlert: number;
   barcode?: string;
   status: "active" | "inactive";
-  openingBoxes: number;
-  openingPieces: number;
+  /** @deprecated Stock now comes only from Purchase - Sales. Kept optional for legacy rows. */
+  openingBoxes?: number;
+  /** @deprecated Stock now comes only from Purchase - Sales. Kept optional for legacy rows. */
+  openingPieces?: number;
   createdAt: number;
 }
 
@@ -172,6 +174,22 @@ export interface Purchase {
   date: number;
   total: number;
   note?: string;
+  // ERP header (all optional to stay backward compatible)
+  supplierGstin?: string;
+  supplierState?: string;
+  referenceNo?: string;
+  placeOfSupply?: string;
+  transport?: string;
+  vehicleNo?: string;
+  driver?: string;
+  lrNo?: string;
+  remarks?: string;
+  narration?: string;
+  taxable?: number;
+  gstAmount?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
 }
 export interface PurchaseItem {
   id?: number;
@@ -187,6 +205,14 @@ export interface PurchaseItem {
   pieces: number;
   rate: number; // per piece
   amount: number;
+  // Extended ERP snapshot (optional/backward compatible)
+  batch?: string;
+  expiry?: number;
+  cgstPct?: number;
+  sgstPct?: number;
+  igstPct?: number;
+  taxable?: number;
+  gstAmount?: number;
 }
 
 export interface AuditLog {
@@ -248,6 +274,11 @@ class ErpDB extends Dexie {
     // may repeat or be blank across products). Name remains unique.
     this.version(3).stores({
       products: "++id,hsn,&name,status,category",
+    });
+    // v4: no schema index changes — new fields are unindexed on Purchase / PurchaseItem.
+    this.version(4).stores({
+      purchases: "++id,date,supplier",
+      purchaseItems: "++id,purchaseId,productId",
     });
   }
 }
