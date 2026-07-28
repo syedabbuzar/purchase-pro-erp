@@ -32,11 +32,9 @@ function Products() {
 
   const save = async () => {
     if (!editing) return;
-    if (!editing.name || !editing.hsn) { toast.error("Name and HSN required"); return; }
+    if (!editing.name) { toast.error("Name required"); return; }
     try {
       const isEdit = !!editing.id;
-      const dupHsn = await db.products.where("hsn").equalsIgnoreCase(editing.hsn).first();
-      if (dupHsn && dupHsn.id !== editing.id) { toast.error("HSN must be unique"); return; }
       const dupName = await db.products.where("name").equalsIgnoreCase(editing.name).first();
       if (dupName && dupName.id !== editing.id) { toast.error("Product name must be unique"); return; }
 
@@ -85,7 +83,10 @@ function Products() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2"><Label>Name *</Label><Input value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
                 <div className="col-span-2"><Label>Description</Label><Textarea rows={2} value={editing.description || ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></div>
-                <div><Label>HSN *</Label><Input value={editing.hsn || ""} onChange={(e) => setEditing({ ...editing, hsn: e.target.value })} /></div>
+                <div>
+                  <Label>HSN <span className="text-muted-foreground text-[10px]">(from latest Purchase)</span></Label>
+                  <Input value={editing.hsn || ""} readOnly disabled className="bg-muted/50" />
+                </div>
                 <div><Label>Unit</Label><Input value={editing.unit || ""} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} /></div>
                 <div><Label>MRP</Label><Input type="number" value={editing.mrp ?? 0} onChange={(e) => setEditing({ ...editing, mrp: +e.target.value })} /></div>
                 <div><Label>Rate (per piece)</Label><Input type="number" value={editing.rate ?? 0} onChange={(e) => setEditing({ ...editing, rate: +e.target.value })} /></div>
