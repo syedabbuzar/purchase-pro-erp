@@ -10,6 +10,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { exportSheet } from "@/lib/xlsx-export";
 import { format } from "date-fns";
+import { formatQty } from "@/lib/qty";
 
 function Stock() {
   const [q, setQ] = useState("");
@@ -114,17 +115,17 @@ function Stock() {
                 }
                 const remaining = s.totalPieces;
                 const remBoxes = Math.floor(remaining / (p.boxSize || 1));
-                const remPieces = remaining - remBoxes * (p.boxSize || 1);
                 const low = remBoxes <= (p.minStockAlert || 0);
                 return (
                   <tr key={p.id} className={"border-t " + (low ? "bg-destructive/10" : "")}>
                     <td className="p-2 font-medium">{p.name}</td>
                     <td>{p.hsn}</td>
                     <td className="text-right">{p.boxSize}</td>
-                    <td className="text-right text-green-700">{purchased}</td>
-                    <td className="text-right text-destructive">{sold}</td>
+                    <td className="text-right text-green-700">{formatQty(purchased, p.boxSize || 1)}</td>
+                    <td className="text-right text-destructive">{formatQty(sold, p.boxSize || 1)}</td>
                     <td className="text-right font-semibold text-green-700">
-                      {remaining} <span className="text-muted-foreground text-xs">({remBoxes} box + {remPieces} pcs)</span>
+                      {formatQty(remaining, p.boxSize || 1)}
+                      <span className="text-muted-foreground text-xs ml-1">({remaining} pcs)</span>
                     </td>
                     <td>{low ? <span className="text-destructive font-semibold">LOW</span> : "OK"}</td>
                     <td className="text-right pr-2"><Button size="sm" variant="ghost" onClick={() => setLedgerProduct(p.id!)}>Ledger</Button></td>

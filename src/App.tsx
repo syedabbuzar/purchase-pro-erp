@@ -17,6 +17,7 @@ import Customers from "@/pages/Customers";
 import CustomerProfile from "@/pages/CustomerProfile";
 import Stock from "@/pages/Stock";
 import Purchases from "@/pages/Purchases";
+import PurchaseView from "@/pages/PurchaseView";
 import Daily from "@/pages/reports/Daily";
 import Sales from "@/pages/reports/Sales";
 import Gst from "@/pages/reports/Gst";
@@ -88,6 +89,7 @@ function App() {
           <Route path="/customers/:id" element={<CustomerProfile />} />
           <Route path="/stock" element={<Stock />} />
           <Route path="/purchases" element={<Purchases />} />
+          <Route path="/purchases/:id" element={<PurchaseView />} />
           <Route path="/reports/daily" element={<Daily />} />
           <Route path="/reports/sales" element={<Sales />} />
           <Route path="/reports/gst" element={<Gst />} />

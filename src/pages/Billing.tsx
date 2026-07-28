@@ -14,6 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { computeItem, computeInvoice, nextInvoiceNumber } from "@/lib/gst";
 import { inr } from "@/lib/num";
 import { inrWords } from "@/lib/num";
+import { formatQty } from "@/lib/qty";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { Trash2, Search } from "lucide-react";
@@ -40,6 +41,15 @@ function BillingPage() {
   const products = useLiveQuery(() => db.products.where("status").equals("active").sortBy("name"), []);
   const customers = useLiveQuery(() => db.customers.orderBy("name").toArray(), []);
   const company = useLiveQuery(() => db.company.toCollection().first(), []);
+  const ledger = useLiveQuery(() => db.stockLedger.toArray(), []);
+
+  const stockOf = (p: Product) => {
+    const bs = p.boxSize || 1;
+    const total = (ledger || [])
+      .filter((e) => e.productId === p.id)
+      .reduce((s, e) => s + e.boxes * bs + e.pieces, 0);
+    return { total, label: formatQty(total, bs) };
+  };
   const [rows, setRows] = useState<Row[]>([]);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [newCust, setNewCust] = useState(false);
@@ -283,22 +293,40 @@ function BillingPage() {
             <Input placeholder="Add another product..." value={addSearch} onChange={(e) => setAddSearch(e.target.value)} className="pl-8 w-72" />
             {addSearch && (
               <div className="absolute z-10 mt-1 w-72 max-h-64 overflow-auto rounded-md border bg-popover shadow-lg">
-                {(products || []).filter((p) => p.name.toLowerCase().includes(addSearch.toLowerCase()) || p.hsn.includes(addSearch)).slice(0, 10).map((p) => (
-                  <button key={p.id} onClick={() => addProductToInvoice(p)} className="block w-full text-left px-3 py-2 text-sm hover:bg-accent">
-                    {p.name} <span className="text-muted-foreground text-xs">— {p.hsn}</span>
-                  </button>
-                ))}
+                {(products || []).filter((p) => p.name.toLowerCase().includes(addSearch.toLowerCase()) || p.hsn.includes(addSearch)).slice(0, 10).map((p) => {
+                  const s = stockOf(p);
+                  return (
+                    <button key={p.id} onClick={() => addProductToInvoice(p)} className="block w-full text-left px-3 py-2 text-sm hover:bg-accent">
+                      <div className="flex justify-between gap-2">
+                        <span>{p.name} <span className="text-muted-foreground text-xs">— {p.hsn}</span></span>
+                        <span className={"text-xs " + (s.total > 0 ? "text-green-700" : "text-destructive")}>Stock: {s.label}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs min-w-[1180px]">
             <thead className="bg-muted/50">
               <tr>
-                <th className="p-1">Sr</th><th>HSN</th><th className="text-left">Description</th>
-                <th>MRP</th><th>Rate</th><th>Box</th><th>Pcs</th><th>Free</th><th>Scheme</th>
-                <th>Disc%</th><th>GST%</th><th>Taxable</th><th>GST</th><th>Net</th><th></th>
+                <th className="p-1 w-10">Sr</th>
+                <th className="min-w-[90px]">HSN</th>
+                <th className="text-left min-w-[240px]">Description</th>
+                <th className="min-w-[90px]">MRP</th>
+                <th className="min-w-[90px]">Rate</th>
+                <th className="min-w-[80px]">Box</th>
+                <th className="min-w-[80px]">Pcs</th>
+                <th className="min-w-[70px]">Free</th>
+                <th className="min-w-[90px]">Scheme</th>
+                <th className="min-w-[70px]">Disc%</th>
+                <th className="min-w-[80px]">GST%</th>
+                <th className="min-w-[100px]">Taxable</th>
+                <th className="min-w-[90px]">GST</th>
+                <th className="min-w-[110px]">Net</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -307,14 +335,14 @@ function BillingPage() {
                   <td className="p-1 text-center">{i + 1}</td>
                   <td className="text-center">{r.hsn}</td>
                   <td>{r.description}</td>
-                  <td><Input className="h-7 w-16" type="number" value={r.mrp} onChange={(e) => updateRow(i, { mrp: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-16" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-14" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-14" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-20" type="number" value={r.mrp} onChange={(e) => updateRow(i, { mrp: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-20" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-16" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-16" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
                   <td><Input className="h-7 w-14" type="number" value={r.free} onChange={(e) => updateRow(i, { free: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-16" type="number" value={r.scheme} onChange={(e) => updateRow(i, { scheme: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-20" type="number" value={r.scheme} onChange={(e) => updateRow(i, { scheme: +e.target.value })} /></td>
                   <td><Input className="h-7 w-14" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-14" type="number" value={r.gstPct} onChange={(e) => updateRow(i, { gstPct: +e.target.value })} /></td>
+                  <td><Input className="h-7 w-16" type="number" value={r.gstPct} onChange={(e) => updateRow(i, { gstPct: +e.target.value })} /></td>
                   <td className="text-right pr-1">{inr(r.taxable)}</td>
                   <td className="text-right pr-1">{inr(r.gstAmount)}</td>
                   <td className="text-right pr-1 font-semibold">{inr(r.netAmount)}</td>
