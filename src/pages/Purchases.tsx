@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type Product } from "@/lib/db";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Trash2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { inr } from "@/lib/num";
+import { formatQty } from "@/lib/qty";
 
 interface Row {
   // productId undefined => new product (will be auto-created on save)
@@ -49,6 +51,8 @@ function Purchases() {
     () => db.purchases.toArray().then((a) => a.sort((x, y) => y.date - x.date)),
     [],
   );
+  const navigate = useNavigate();
+  const [historyQuery, setHistoryQuery] = useState("");
   const [form, setForm] = useState({
     invoiceNo: "",
     supplier: "",
@@ -347,10 +351,10 @@ function Purchases() {
             <table className="w-full text-xs min-w-[1200px]">
               <thead className="bg-muted/50 text-left">
                 <tr>
-                  <th className="p-2">Product</th>
-                  <th>HSN</th>
-                  <th>Batch</th>
-                  <th>Expiry</th>
+                  <th className="p-2 min-w-[220px]">Product</th>
+                  <th className="min-w-[110px]">HSN</th>
+                  <th className="min-w-[110px]">Batch</th>
+                  <th className="min-w-[140px]">Expiry</th>
                   <th className="text-right">GST%</th>
                   {interState
                     ? <th className="text-right">IGST%</th>
@@ -360,10 +364,10 @@ function Purchases() {
                   <th className="text-right">Boxes</th>
                   <th className="text-right">Loose Pcs</th>
                   <th className="text-right">Total Pcs</th>
-                  <th className="text-right">Rate/Pc</th>
-                  <th className="text-right">Taxable</th>
-                  <th className="text-right">GST</th>
-                  <th className="text-right">Total</th>
+                  <th className="text-right min-w-[110px]">Rate/Pc</th>
+                  <th className="text-right min-w-[110px]">Taxable</th>
+                  <th className="text-right min-w-[100px]">GST</th>
+                  <th className="text-right min-w-[120px]">Total</th>
                   <th></th>
                 </tr>
               </thead>
@@ -382,14 +386,14 @@ function Purchases() {
                       </td>
                       <td>
                         <Input
-                          className="h-7 w-24"
+                          className="h-7 w-28"
                           value={r.hsn}
                           placeholder="HSN"
                           onChange={(e) => updateRow(i, { hsn: e.target.value })}
                         />
                       </td>
-                      <td><Input className="h-7 w-20" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} /></td>
-                      <td><Input className="h-7 w-32" type="date" value={r.expiry || ""} onChange={(e) => updateRow(i, { expiry: e.target.value })} /></td>
+                      <td><Input className="h-7 w-28" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} /></td>
+                      <td><Input className="h-7 w-36" type="date" value={r.expiry || ""} onChange={(e) => updateRow(i, { expiry: e.target.value })} /></td>
                       <td>
                         <Select value={String(r.gstPct)} onValueChange={(v) => updateRow(i, { gstPct: +v })}>
                           <SelectTrigger className="h-7 w-16"><SelectValue /></SelectTrigger>
@@ -405,7 +409,7 @@ function Purchases() {
                       }
                       <td>
                         <Input
-                          className="h-7 w-16"
+                          className="h-7 w-20"
                           type="number"
                           value={r.boxSize}
                           onChange={(e) =>
@@ -417,7 +421,7 @@ function Purchases() {
                       </td>
                       <td>
                         <Input
-                          className="h-7 w-16"
+                          className="h-7 w-20"
                           type="number"
                           value={r.boxes}
                           onChange={(e) =>
@@ -427,7 +431,7 @@ function Purchases() {
                       </td>
                       <td>
                         <Input
-                          className="h-7 w-16"
+                          className="h-7 w-20"
                           type="number"
                           value={r.pieces}
                           onChange={(e) =>
@@ -436,11 +440,12 @@ function Purchases() {
                         />
                       </td>
                       <td className="text-right pr-2 font-medium">
-                        {c.totalPieces}
+                        <div>{c.totalPieces}</div>
+                        <div className="text-[10px] text-muted-foreground">{formatQty(c.totalPieces, r.boxSize || 1)}</div>
                       </td>
                       <td>
                         <Input
-                          className="h-7 w-20"
+                          className="h-7 w-24"
                           type="number"
                           value={r.rate}
                           onChange={(e) =>
@@ -508,32 +513,68 @@ function Purchases() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Recent Purchases</CardTitle>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <CardTitle className="sm:mr-auto">Purchase History</CardTitle>
+          <Input
+            placeholder="Search supplier / invoice no..."
+            value={historyQuery}
+            onChange={(e) => setHistoryQuery(e.target.value)}
+            className="w-full sm:w-72"
+          />
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm min-w-[500px]">
+          <table className="w-full text-sm min-w-[820px]">
             <thead className="bg-muted/50 text-left">
               <tr>
-                <th className="p-2">Date</th>
+                <th className="p-2">Invoice No</th>
+                <th>Date</th>
                 <th>Supplier</th>
-                <th>Inv #</th>
+                <th>GSTIN</th>
+                <th className="text-right">GST Amt</th>
                 <th className="text-right">Total</th>
+                <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {(purchases || []).map((p) => (
-                <tr key={p.id} className="border-t">
-                  <td className="p-2">{format(p.date, "dd/MM/yyyy")}</td>
-                  <td>{p.supplier}</td>
-                  <td>{p.invoiceNo}</td>
-                  <td className="text-right">₹ {inr(p.total)}</td>
-                </tr>
-              ))}
+              {(purchases || [])
+                .filter((p) => {
+                  if (!historyQuery.trim()) return true;
+                  const q = historyQuery.trim().toLowerCase();
+                  return (
+                    (p.supplier || "").toLowerCase().includes(q) ||
+                    (p.invoiceNo || "").toLowerCase().includes(q) ||
+                    (p.supplierGstin || "").toLowerCase().includes(q)
+                  );
+                })
+                .map((p) => (
+                  <tr
+                    key={p.id}
+                    className="border-t hover:bg-muted/40 cursor-pointer"
+                    onClick={() => navigate(`/purchases/${p.id}`)}
+                  >
+                    <td className="p-2 font-medium">{p.invoiceNo || `#${p.id}`}</td>
+                    <td>{format(p.date, "dd/MM/yyyy")}</td>
+                    <td>{p.supplier}</td>
+                    <td className="text-xs">{p.supplierGstin || "—"}</td>
+                    <td className="text-right">₹ {inr(p.gstAmount || 0)}</td>
+                    <td className="text-right font-semibold">₹ {inr(p.total)}</td>
+                    <td><span className="text-green-700 text-xs">Saved</span></td>
+                    <td className="text-right pr-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/purchases/${p.id}`); }}
+                      >
+                        View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               {(!purchases || purchases.length === 0) && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={8}
                     className="text-center p-6 text-muted-foreground"
                   >
                     No purchases yet.
