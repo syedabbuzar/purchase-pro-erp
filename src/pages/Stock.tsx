@@ -99,21 +99,24 @@ function Stock() {
               <th className="text-right">Pcs / Box</th>
               <th className="text-right">Purchased</th>
               <th className="text-right">Sold</th>
+              <th className="text-right">Returned</th>
               <th className="text-right">Remaining</th>
               <th>Alert</th><th></th>
             </tr></thead>
             <tbody>
               {filtered.map((p) => {
-                const s = data.stock.get(p.id!)!;
                 const entries = data.ledger.filter((e) => e.productId === p.id);
                 const bs = p.boxSize || 1;
-                let purchased = 0, sold = 0;
+                // Current Stock = Purchased - Sold + Returned (no other maths).
+                let purchased = 0, sold = 0, returned = 0, adjusted = 0;
                 for (const e of entries) {
                   const pieces = e.boxes * bs + e.pieces;
-                  if (pieces > 0) purchased += pieces;
-                  else sold += -pieces;
+                  if (e.type === "purchase" || e.type === "opening") purchased += pieces;
+                  else if (e.type === "sale") sold += -pieces;
+                  else if (e.type === "return" || e.type === "cancel") returned += pieces;
+                  else adjusted += pieces;
                 }
-                const remaining = s.totalPieces;
+                const remaining = purchased - sold + returned + adjusted;
                 const remBoxes = Math.floor(remaining / (p.boxSize || 1));
                 const low = remBoxes <= (p.minStockAlert || 0);
                 return (
@@ -123,6 +126,7 @@ function Stock() {
                     <td className="text-right">{p.boxSize}</td>
                     <td className="text-right text-green-700">{formatQty(purchased, p.boxSize || 1)}</td>
                     <td className="text-right text-destructive">{formatQty(sold, p.boxSize || 1)}</td>
+                    <td className="text-right">{formatQty(returned, p.boxSize || 1)}</td>
                     <td className="text-right font-semibold text-green-700">
                       {formatQty(remaining, p.boxSize || 1)}
                       <span className="text-muted-foreground text-xs ml-1">({remaining} pcs)</span>

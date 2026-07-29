@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type Product } from "@/lib/db";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ function Purchases() {
     [],
   );
   const navigate = useNavigate();
+  const savingRef = useRef(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [form, setForm] = useState({
     invoiceNo: "",
@@ -142,6 +143,9 @@ function Purchases() {
       toast.error("Supplier and items required");
       return;
     }
+    // Purchase is the only source of stock — never let a double click write
+    // the same bill (and therefore the same stock) twice.
+    if (savingRef.current) return;
     for (const r of rows) {
       if (!r.name.trim()) {
         toast.error("Every row needs a product name");
@@ -154,6 +158,7 @@ function Purchases() {
     }
 
     try {
+      savingRef.current = true;
       const purchaseId = (await db.purchases.add({
         invoiceNo: form.invoiceNo,
         supplier: form.supplier,
@@ -275,6 +280,8 @@ function Purchases() {
       });
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      savingRef.current = false;
     }
   };
 

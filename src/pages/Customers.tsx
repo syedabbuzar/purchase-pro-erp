@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Pencil, Plus } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { exportSheet } from "@/lib/xlsx-export";
 
 const empty: Partial<Customer> = {
@@ -20,6 +21,7 @@ const empty: Partial<Customer> = {
 function Customers() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Partial<Customer> | null>(null);
+  const [deleting, setDeleting] = useState<Customer | null>(null);
   const customers = useLiveQuery(() => db.customers.orderBy("name").toArray(), []);
 
   const filtered = (customers || []).filter((c) => {
@@ -36,6 +38,19 @@ function Customers() {
     else await db.customers.add({ ...(editing as Customer), createdAt: Date.now() });
     toast.success("Saved");
     setEditing(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting?.id) return;
+    const linked = await db.invoices.where("customerId").equals(deleting.id).count();
+    if (linked > 0) {
+      toast.error("Customer has invoices and cannot be deleted");
+      setDeleting(null);
+      return;
+    }
+    await db.customers.delete(deleting.id);
+    toast.success("Customer deleted");
+    setDeleting(null);
   };
 
   return (
@@ -95,6 +110,7 @@ function Customers() {
                   <td>{c.city || "—"}</td>
                   <td className="text-right pr-2">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => setDeleting(c)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </td>
                 </tr>
               ))}
@@ -103,6 +119,21 @@ function Customers() {
           </table>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete customer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting?.name} will be removed permanently. Customers with existing invoices cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
