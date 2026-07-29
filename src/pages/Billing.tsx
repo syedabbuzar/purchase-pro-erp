@@ -255,7 +255,22 @@ function BillingPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-bold">{isEditing ? "Edit Invoice" : "New Invoice"}</h1>
-        <Button className="ml-auto" onClick={() => saveInvoice()} disabled={saving}>{saving ? "Saving..." : isEditing ? "Update Invoice" : "Save Invoice"}</Button>
+        <Button
+          className="ml-auto"
+          variant="outline"
+          disabled={saving}
+          onClick={() => {
+            // Cancel before saving: nothing is written — no invoice, no stock
+            // change, no ledger, no payment, no history.
+            setRows([]);
+            setCustomerId(null);
+            toast.info("Cancelled — nothing was saved");
+            navigate(isEditing ? `/invoice-preview/${String(editId)}` : "/invoices");
+          }}
+        >
+          Cancel
+        </Button>
+        <Button onClick={() => saveInvoice()} disabled={saving}>{saving ? "Saving..." : isEditing ? "Update Invoice" : "Save Invoice"}</Button>
       </div>
 
 
