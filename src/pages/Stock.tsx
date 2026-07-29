@@ -105,7 +105,6 @@ function Stock() {
             </tr></thead>
             <tbody>
               {filtered.map((p) => {
-                const s = data.stock.get(p.id!)!;
                 const entries = data.ledger.filter((e) => e.productId === p.id);
                 const bs = p.boxSize || 1;
                 // Current Stock = Purchased - Sold + Returned (no other maths).
