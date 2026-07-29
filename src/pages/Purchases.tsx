@@ -52,6 +52,7 @@ function Purchases() {
     [],
   );
   const navigate = useNavigate();
+  const savingRef = useRef(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [form, setForm] = useState({
     invoiceNo: "",
@@ -279,6 +280,8 @@ function Purchases() {
       });
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      savingRef.current = false;
     }
   };
 
