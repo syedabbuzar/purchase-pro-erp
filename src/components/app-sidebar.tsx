@@ -1,8 +1,9 @@
 import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Receipt, FileText, Package, Users, Boxes, TruckIcon,
-  BarChart3, Percent, ClipboardList, Settings, DatabaseBackup, UserCog, Star, LogOut,
+  BarChart3, Percent, ClipboardList, Settings, DatabaseBackup, UserCog, LogOut,
 } from "lucide-react";
+import starLogo from "@/assets/star-logo.png.asset.json";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter,
@@ -71,7 +72,11 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-0">
         <div className={collapsed ? "flex items-center justify-center py-3" : "sidebar-brand flex items-center gap-2"}>
-          <Star className={collapsed ? "h-6 w-6 text-primary" : "h-6 w-6"} strokeWidth={2} />
+          <img
+            src={starLogo.url}
+            alt="STAR ENTERPRISES logo"
+            className={collapsed ? "h-7 w-7 rounded object-contain" : "h-8 w-8 rounded object-contain"}
+          />
           {!collapsed && (
             <div className="min-w-0">
               <div className="brand-title text-sm truncate">STAR ENTERPRISES</div>
