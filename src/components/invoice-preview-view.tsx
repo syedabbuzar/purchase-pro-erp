@@ -169,12 +169,20 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
   };
 
   const cancelInvoice = async () => {
+    if (data.invoice!.status !== "active") { toast.error("Invoice is already cancelled"); return; }
     await db.transaction("rw", [db.invoices, db.stockLedger, db.audit], async () => {
+      const fresh = await db.invoices.get(invoiceId);
+      if (!fresh || fresh.status !== "active") throw new Error("Invoice is already cancelled");
       await db.invoices.update(invoiceId, { status: "cancelled" });
+      // Restore exactly what was sold (sale minus what was already returned).
+      const alreadyReturned = returnedByItem;
       for (const it of data.items) {
+        const sold = it.boxes * it.boxSize + it.pieces + it.free;
+        const restore = sold - (alreadyReturned.get(it.id!)?.totalPieces || 0);
+        if (restore <= 0) continue;
         await db.stockLedger.add({
           productId: it.productId, ts: Date.now(), type: "cancel",
-          boxes: it.boxes, pieces: it.pieces + it.free,
+          boxes: 0, pieces: restore,
           refId: invoiceId, note: `Cancel ${data.invoice!.number}`,
         });
       }
