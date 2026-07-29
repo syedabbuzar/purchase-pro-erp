@@ -196,9 +196,12 @@ export function InvoicePreviewView({ invoiceId }: { invoiceId: number }) {
       await db.invoices.update(invoiceId, { status: "deleted" });
       if (data.invoice!.status === "active") {
         for (const it of data.items) {
+          const sold = it.boxes * it.boxSize + it.pieces + it.free;
+          const restore = sold - (returnedByItem.get(it.id!)?.totalPieces || 0);
+          if (restore <= 0) continue;
           await db.stockLedger.add({
             productId: it.productId, ts: Date.now(), type: "cancel",
-            boxes: it.boxes, pieces: it.pieces + it.free,
+            boxes: 0, pieces: restore,
             refId: invoiceId, note: `Delete ${data.invoice!.number}`,
           });
         }
