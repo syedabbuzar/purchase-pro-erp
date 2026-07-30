@@ -71,7 +71,7 @@ function Customers() {
         <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
           <DialogTrigger asChild><Button onClick={() => setEditing({ ...empty })}><Plus className="h-4 w-4 mr-1" />New Customer</Button></DialogTrigger>
           <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>{editing?.id ? "Edit" : "New"} Customer</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editing?._id ? "Edit" : "New"} Customer</DialogTitle></DialogHeader>
             {editing && (
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Customer Name *</Label><Input value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
