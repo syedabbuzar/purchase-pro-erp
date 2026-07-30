@@ -15,7 +15,7 @@ function Gstr1B2B() {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-bold mr-auto">GSTR-1 B2B</h1>
-        <Button variant="outline" onClick={() => exportSheet(rows, "gstr1-b2b.xlsx")}>Export Excel</Button>
+        <Button variant="outline" onClick={() => exportSheet(rows as unknown as Record<string, unknown>[], "gstr1-b2b.xlsx")}>Export Excel</Button>
       </div>
       {error && <ErrorState message={error} onRetry={refresh} />}
       <Card>

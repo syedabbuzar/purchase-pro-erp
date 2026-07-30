@@ -15,7 +15,7 @@ function GstB2BExport() {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-bold mr-auto">GST B2B Export</h1>
-        <Button variant="outline" onClick={() => exportSheet(rows, "gst-b2b.xlsx")}>Export Excel</Button>
+        <Button variant="outline" onClick={() => exportSheet(rows as unknown as Record<string, unknown>[], "gst-b2b.xlsx")}>Export Excel</Button>
       </div>
       {error && <ErrorState message={error} onRetry={refresh} />}
       <Card>
