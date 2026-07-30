@@ -207,7 +207,7 @@ function BillingPage() {
             taxable: totals.taxable, cgst: totals.cgst, sgst: totals.sgst, igst: totals.igst,
             roundOff: totals.roundOff, total: totals.total,
             amountInWords: inrWords(totals.total),
-            status: "active", createdBy: session?.userId, createdAt: Date.now(),
+            status: "active", createdBy: undefined, createdAt: Date.now(),
           }) as number;
         }
 
@@ -235,7 +235,7 @@ function BillingPage() {
         }
 
         await db.audit.add({
-          ts: Date.now(), userId: session?.userId,
+          ts: Date.now(), userId: undefined,
           action: editId ? "update" : "create", entity: "invoice", entityId: savedInvoiceId as number,
         });
         return savedInvoiceId as number;

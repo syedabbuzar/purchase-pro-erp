@@ -41,7 +41,7 @@ function Users() {
   };
 
   const del = async (id: number) => {
-    if (id === session.userId) { toast.error("Cannot delete yourself"); return; }
+    if (String(id) === String(session.userId)) { toast.error("Cannot delete yourself"); return; }
     if (!confirm("Delete user?")) return;
     await db.users.delete(id);
     toast.success("Deleted");
