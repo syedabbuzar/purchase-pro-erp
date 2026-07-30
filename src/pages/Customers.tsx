@@ -1,7 +1,10 @@
 import { Link } from "react-router-dom";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, type Customer } from "@/lib/db";
 import { useState } from "react";
+import { customersApi } from "@/lib/services";
+import { apiErrorMessage } from "@/lib/api";
+import { useApi } from "@/hooks/use-api";
+import type { Customer } from "@/lib/types";
+import { Loading, ErrorState } from "@/components/data-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,35 +25,39 @@ function Customers() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Partial<Customer> | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
-  const customers = useLiveQuery(() => db.customers.orderBy("name").toArray(), []);
+  const { data: customers, loading, error, refresh } = useApi(() => customersApi.list(), []);
 
   const filtered = (customers || []).filter((c) => {
     if (!q) return true;
     const s = q.toLowerCase();
     return c.name.toLowerCase().includes(s) || (c.shopName || "").toLowerCase().includes(s) ||
-      c.mobile.includes(s) || (c.gstin || "").toLowerCase().includes(s);
+      (c.mobile || "").includes(s) || (c.gstin || "").toLowerCase().includes(s);
   });
 
   const save = async () => {
     if (!editing) return;
     if (!editing.name || !editing.mobile) { toast.error("Name and mobile required"); return; }
-    if (editing.id) await db.customers.update(editing.id, editing);
-    else await db.customers.add({ ...(editing as Customer), createdAt: Date.now() });
-    toast.success("Saved");
-    setEditing(null);
+    try {
+      if (editing._id) await customersApi.update(editing._id, editing);
+      else await customersApi.create(editing);
+      toast.success("Saved");
+      setEditing(null);
+      await refresh();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    }
   };
 
   const confirmDelete = async () => {
-    if (!deleting?.id) return;
-    const linked = await db.invoices.where("customerId").equals(deleting.id).count();
-    if (linked > 0) {
-      toast.error("Customer has invoices and cannot be deleted");
+    if (!deleting?._id) return;
+    try {
+      await customersApi.deactivate(deleting._id);
+      toast.success("Customer deactivated");
       setDeleting(null);
-      return;
+      await refresh();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
     }
-    await db.customers.delete(deleting.id);
-    toast.success("Customer deleted");
-    setDeleting(null);
   };
 
   return (
@@ -94,27 +101,30 @@ function Customers() {
         </Dialog>
       </div>
 
+      {error && <ErrorState message={error} onRetry={refresh} />}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
+          {loading && <Loading label="Loading customers..." />}
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">
-              <tr><th className="p-2">Name</th><th>Shop</th><th>Mobile</th><th>GSTIN</th><th>City</th><th></th></tr>
+              <tr><th className="p-2">Name</th><th>Shop</th><th>Mobile</th><th>GSTIN</th><th>City</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} className="border-t hover:bg-muted/30">
-                  <td className="p-2"><Link to={`/customers/${String(c.id)}`} className="font-medium text-primary hover:underline">{c.name}</Link></td>
+                <tr key={c._id} className="border-t hover:bg-muted/30">
+                  <td className="p-2"><Link to={`/customers/${c._id}`} className="font-medium text-primary hover:underline">{c.name}</Link></td>
                   <td>{c.shopName || "—"}</td>
                   <td>{c.mobile}</td>
                   <td>{c.gstin || "—"}</td>
                   <td>{c.city || "—"}</td>
+                  <td className="capitalize">{c.status}</td>
                   <td className="text-right pr-2">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleting(c)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={6} className="text-center p-6 text-muted-foreground">No customers yet.</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={7} className="text-center p-6 text-muted-foreground">No customers yet.</td></tr>}
             </tbody>
           </table>
         </CardContent>
@@ -125,12 +135,12 @@ function Customers() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleting?.name} will be removed permanently. Customers with existing invoices cannot be deleted.
+              {deleting?.name} will be deactivated. Invoice history is preserved, so the customer is never hard-deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete}>Deactivate</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
