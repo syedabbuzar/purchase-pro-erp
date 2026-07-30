@@ -1,7 +1,10 @@
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, type Product } from "@/lib/db";
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { productsApi } from "@/lib/services";
+import { apiErrorMessage } from "@/lib/api";
+import { useApi } from "@/hooks/use-api";
+import type { Product } from "@/lib/types";
+import { Loading, ErrorState } from "@/components/data-state";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,12 +24,12 @@ const empty: Partial<Product> = {
 function Products() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
-  const products = useLiveQuery(() => db.products.orderBy("name").toArray(), []);
+  const { data: products, loading, error, refresh } = useApi(() => productsApi.list(), []);
 
   const filtered = (products || []).filter((p) => {
     if (!q) return true;
     const s = q.toLowerCase();
-    return p.name.toLowerCase().includes(s) || p.hsn.toLowerCase().includes(s);
+    return p.name.toLowerCase().includes(s) || (p.hsn || "").toLowerCase().includes(s);
   });
 
 
@@ -34,27 +37,29 @@ function Products() {
     if (!editing) return;
     if (!editing.name) { toast.error("Name required"); return; }
     try {
-      const isEdit = !!editing.id;
-      const dupName = await db.products.where("name").equalsIgnoreCase(editing.name).first();
-      if (dupName && dupName.id !== editing.id) { toast.error("Product name must be unique"); return; }
-
-      if (isEdit) {
-        await db.products.update(editing.id!, editing);
+      if (editing._id) {
+        await productsApi.update(editing._id, editing);
         toast.success("Product updated");
       } else {
-        await db.products.add({ ...(editing as Product), createdAt: Date.now() });
+        await productsApi.create(editing);
         toast.success("Product added");
       }
       setEditing(null);
+      await refresh();
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(apiErrorMessage(e));
     }
   };
 
-  const del = async (id: number) => {
+  const del = async (id: string) => {
     if (!confirm("Delete this product? Stock history for it will remain.")) return;
-    await db.products.delete(id);
-    toast.success("Deleted");
+    try {
+      await productsApi.remove(id);
+      toast.success("Deleted");
+      await refresh();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    }
   };
 
   const exportAll = () => {
@@ -78,7 +83,7 @@ function Products() {
             <Button onClick={() => setEditing({ ...empty })}><Plus className="h-4 w-4 mr-1" />New Product</Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>{editing?.id ? "Edit" : "New"} Product</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editing?._id ? "Edit" : "New"} Product</DialogTitle></DialogHeader>
             {editing && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2"><Label>Name *</Label><Input value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
@@ -114,8 +119,10 @@ function Products() {
         </Dialog>
       </div>
 
+      {error && <ErrorState message={error} onRetry={refresh} />}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
+          {loading && <Loading label="Loading products..." />}
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">
               <tr>
@@ -127,7 +134,7 @@ function Products() {
             </thead>
             <tbody>
               {filtered.map((p) => (
-                <tr key={p.id} className="border-t hover:bg-muted/30">
+                <tr key={p._id} className="border-t hover:bg-muted/30">
                   <td className="p-2 font-medium">{p.name}</td>
                   <td>{p.hsn}</td>
                   <td className="text-right">{inr(p.mrp)}</td>
@@ -137,11 +144,11 @@ function Products() {
                   <td><span className={p.status === "active" ? "text-green-700" : "text-muted-foreground"}>{p.status}</span></td>
                   <td className="text-right pr-2">
                     <Button size="icon" variant="ghost" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => del(p.id!)}><Trash2 className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => del(p._id)}><Trash2 className="h-4 w-4" /></Button>
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={8} className="text-center p-6 text-muted-foreground">No products yet.</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="text-center p-6 text-muted-foreground">No products yet.</td></tr>}
             </tbody>
           </table>
         </CardContent>
