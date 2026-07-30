@@ -1,7 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { ensureSeed } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,11 +12,10 @@ function AuthPage() {
   const navigate = useNavigate();
   const login = useAuth((s) => s.login);
   const session = useAuth((s) => s.session);
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { ensureSeed().catch(console.error); }, []);
   useEffect(() => {
     if (session && session.expiresAt > Date.now()) navigate("/dashboard");
   }, [session, navigate]);
@@ -57,7 +55,7 @@ function AuthPage() {
               {loading ? "Signing in..." : "Sign in"}
             </Button>
             <p className="text-xs text-muted-foreground text-center">
-              Default: <b>admin</b> / <b>admin</b> — change after first login.
+              Sign in with your STAR ENTERPRISES admin account.
             </p>
           </form>
         </CardContent>

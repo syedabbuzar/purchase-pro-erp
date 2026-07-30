@@ -1,13 +1,16 @@
-import bcrypt from "bcryptjs";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { db, type Role } from "./db";
+import { loginApi } from "./services";
+import { apiErrorMessage, setToken } from "./api";
+
+export type Role = "admin";
 
 interface Session {
-  userId: number;
+  userId: string;
   name: string;
   username: string;
   role: Role;
+  token: string;
   expiresAt: number;
 }
 
@@ -24,22 +27,28 @@ export const useAuth = create<AuthState>()(
     (set, get) => ({
       session: null,
       login: async (username, password) => {
-        const u = await db.users.where("username").equals(username.trim()).first();
-        if (!u) return { ok: false, error: "Invalid credentials" };
-        const ok = await bcrypt.compare(password, u.passwordHash);
-        if (!ok) return { ok: false, error: "Invalid credentials" };
-        set({
-          session: {
-            userId: u.id!,
-            name: u.name,
-            username: u.username,
-            role: u.role,
-            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-          },
-        });
-        return { ok: true };
+        try {
+          const res = await loginApi(username.trim(), password);
+          if (!res?.token) return { ok: false, error: res?.message || "Login failed" };
+          set({
+            session: {
+              userId: res.data.id,
+              name: res.data.username,
+              username: res.data.username,
+              role: "admin",
+              token: res.token,
+              expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+            },
+          });
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: apiErrorMessage(e) };
+        }
       },
-      logout: () => set({ session: null }),
+      logout: () => {
+        setToken(null);
+        set({ session: null });
+      },
       isAuthed: () => {
         const s = get().session;
         return !!s && s.expiresAt > Date.now();
@@ -49,6 +58,11 @@ export const useAuth = create<AuthState>()(
         return !!s && roles.includes(s.role);
       },
     }),
-    { name: "star-erp-auth" },
+    {
+      name: "star-erp-auth",
+      onRehydrateStorage: () => (state) => {
+        if (state?.session?.token) setToken(state.session.token);
+      },
+    },
   ),
 );
