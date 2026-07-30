@@ -4,7 +4,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/lib/auth";
-import { ensureSeed } from "@/lib/db";
 
 import AuthPage from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
@@ -72,7 +71,6 @@ function AuthLayout() {
 }
 
 function App() {
-  useEffect(() => { ensureSeed().catch(console.error); }, []);
   return (
     <>
       <Routes>
