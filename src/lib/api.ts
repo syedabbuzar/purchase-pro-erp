@@ -8,8 +8,7 @@ import axios, {
  * SINGLE PLACE where the hosted backend URL is configured.
  * Every API call in the frontend goes through this axios instance.
  */
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://star-enterprises.vercel.app";
+export const API_BASE_URL = "https://star-enterprises.vercel.app/";
 
 export const TOKEN_KEY = "star-erp-token";
 
@@ -30,15 +29,22 @@ export function setToken(token: string | null) {
   }
 }
 
-export const api: AxiosInstance = axios.create({
+const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  headers: { "Content-Type": "application/json" },
-  timeout: 60000,
 });
 
 api.interceptors.request.use((config) => {
+  if (config.method !== "get" && !(config.data instanceof FormData)) {
+    config.headers["Content-Type"] = "application/json";
+  }
+
+  if (config.data instanceof FormData) {
+    delete config.headers["Content-Type"];
+  }
+
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+
   return config;
 });
 
@@ -74,4 +80,5 @@ export const put = <T,>(url: string, data?: unknown) =>
 
 export const del = <T,>(url: string) => request<T>({ method: "DELETE", url });
 
+export { api };
 export default api;
