@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { db, type Purchase, type PurchaseItem, type Company } from "@/lib/db";
+import type { Purchase, PurchaseItem, Company } from "@/lib/types";
+import { companyApi, purchasesApi } from "@/lib/services";
+import { apiErrorMessage } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { inr, inrWords } from "@/lib/num";
@@ -15,18 +17,25 @@ function PurchaseView() {
   const [items, setItems] = useState<PurchaseItem[]>([]);
   const [company, setCompany] = useState<Company | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
-      const pid = Number(id);
-      if (!pid) return;
-      const p = await db.purchases.get(pid);
-      const its = await db.purchaseItems.where("purchaseId").equals(pid).toArray();
-      const c = await db.company.toCollection().first();
-      setPurchase(p || null);
-      setItems(its);
-      setCompany(c || null);
+      if (!id) return;
+      try {
+        const [res, c] = await Promise.all([purchasesApi.getById(id), companyApi.get()]);
+        setPurchase(res?.purchase || null);
+        setItems(res?.items || []);
+        setCompany(c || null);
+      } catch (e) {
+        setError(apiErrorMessage(e));
+      }
     })();
   }, [id]);
+
+  if (error) {
+    return <div className="p-6 text-sm text-destructive">{error}</div>;
+  }
 
   if (!purchase) {
     return <div className="p-6 text-sm text-muted-foreground">Loading purchase bill…</div>;
@@ -74,7 +83,7 @@ function PurchaseView() {
               <div className="text-xs uppercase text-muted-foreground mb-1">Invoice Information</div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <span className="text-muted-foreground">Invoice No:</span><span className="font-medium">{purchase.invoiceNo || "—"}</span>
-                <span className="text-muted-foreground">Date:</span><span>{format(purchase.date, "dd/MM/yyyy")}</span>
+                <span className="text-muted-foreground">Date:</span><span>{format(new Date(purchase.date), "dd/MM/yyyy")}</span>
                 {purchase.referenceNo && (<><span className="text-muted-foreground">Reference:</span><span>{purchase.referenceNo}</span></>)}
                 {purchase.lrNo && (<><span className="text-muted-foreground">LR No:</span><span>{purchase.lrNo}</span></>)}
                 {purchase.transport && (<><span className="text-muted-foreground">Transport:</span><span>{purchase.transport}</span></>)}
@@ -108,12 +117,12 @@ function PurchaseView() {
                   const bs = it.boxSize || 1;
                   const totalPieces = (it.boxes || 0) * bs + (it.pieces || 0);
                   return (
-                    <tr key={it.id} className="border-t">
+                    <tr key={it._id || i} className="border-t">
                       <td className="border p-2">{i + 1}</td>
                       <td className="border p-2 font-medium">{it.name || `#${it.productId}`}</td>
                       <td className="border p-2">{it.hsn || "—"}</td>
                       <td className="border p-2">{it.batch || "—"}</td>
-                      <td className="border p-2">{it.expiry ? format(it.expiry, "MM/yyyy") : "—"}</td>
+                      <td className="border p-2">{it.expiry ? format(new Date(it.expiry), "MM/yyyy") : "—"}</td>
                       <td className="border p-2 text-right">{it.gstPct ?? 0}%</td>
                       <td className="border p-2 text-right">
                         <div>{formatQty(totalPieces, bs)}</div>
@@ -146,7 +155,8 @@ function PurchaseView() {
                   <div className="flex justify-between"><span className="text-muted-foreground">SGST</span><span>₹ {inr(purchase.sgst || 0)}</span></div>
                 </>
               )}
-              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-muted-foreground">Total GST</span><span>₹ {inr(purchase.gstAmount || 0)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total GST</span><span>₹ {inr(purchase.gstAmount || 0)}</span></div>
+              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-muted-foreground">Bill Discount</span><span>₹ {inr(purchase.discount || 0)}</span></div>
             </div>
             <div className="rounded border p-3 bg-primary/10 flex flex-col justify-between">
               <div className="text-xs uppercase text-muted-foreground">Grand Total</div>
