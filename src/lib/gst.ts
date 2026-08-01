@@ -1,4 +1,4 @@
-import type { InvoiceItem, Customer, Company } from "./db";
+import type { Company, Customer } from "./types";
 
 export interface ItemInput {
   boxes: number;
@@ -6,7 +6,6 @@ export interface ItemInput {
   boxSize: number;
   rate: number;
   discount: number; // percent
-  scheme: number; // amount
   gstPct: number;
 }
 
@@ -14,10 +13,10 @@ export function computeItem(i: ItemInput) {
   const totalPieces = (i.boxes || 0) * (i.boxSize || 1) + (i.pieces || 0);
   const gross = totalPieces * (i.rate || 0);
   const discAmt = gross * ((i.discount || 0) / 100);
-  const taxable = Math.max(0, gross - discAmt - (i.scheme || 0));
+  const taxable = Math.max(0, gross - discAmt);
   const gstAmount = +(taxable * ((i.gstPct || 0) / 100)).toFixed(2);
   const netAmount = +(taxable + gstAmount).toFixed(2);
-  return { totalPieces, gross, taxable: +taxable.toFixed(2), gstAmount, netAmount };
+  return { totalPieces, gross, discAmt, taxable: +taxable.toFixed(2), gstAmount, netAmount };
 }
 
 export interface Totals {
@@ -29,41 +28,38 @@ export interface Totals {
   igst: number;
   roundOff: number;
   total: number;
-  byRate: Record<string, { taxable: number; cgst: number; sgst: number; igst: number }>;
+}
+
+export interface ComputedItem extends ItemInput {
+  taxable: number;
+  gstAmount: number;
+  netAmount: number;
 }
 
 export function computeInvoice(
-  items: Array<Omit<InvoiceItem, "id" | "invoiceId" | "srNo">>,
-  company: Company,
+  items: ComputedItem[],
+  company: Company | null,
   customer: Customer | null,
 ): Totals {
-  const interState = !!customer?.stateCode && customer.stateCode !== company.stateCode;
+  const interState =
+    !!customer?.stateCode && !!company?.stateCode && customer.stateCode !== company.stateCode;
   let subtotal = 0;
   let taxable = 0;
   let totalDiscount = 0;
   let cgst = 0, sgst = 0, igst = 0;
-  const byRate: Totals["byRate"] = {};
 
   for (const it of items) {
     const totalPieces = it.boxes * (it.boxSize || 1) + it.pieces;
     const gross = totalPieces * it.rate;
-    const discAmt = gross * ((it.discount || 0) / 100);
     subtotal += gross;
-    totalDiscount += discAmt + (it.scheme || 0);
+    totalDiscount += gross * ((it.discount || 0) / 100);
     taxable += it.taxable;
-    const key = it.gstPct.toString();
-    if (!byRate[key]) byRate[key] = { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
-    byRate[key].taxable += it.taxable;
     if (interState) {
-      const g = +(it.taxable * (it.gstPct / 100)).toFixed(2);
-      igst += g;
-      byRate[key].igst += g;
+      igst += +(it.taxable * (it.gstPct / 100)).toFixed(2);
     } else {
       const half = +(it.taxable * (it.gstPct / 200)).toFixed(2);
       cgst += half;
       sgst += half;
-      byRate[key].cgst += half;
-      byRate[key].sgst += half;
     }
   }
 
@@ -80,21 +76,21 @@ export function computeInvoice(
     igst: +igst.toFixed(2),
     roundOff,
     total: rounded,
-    byRate,
   };
 }
 
 export function nextInvoiceNumber(prefix: string, existing: string[]): string {
+  const p = prefix || "INV";
   const now = new Date();
   // FY: Apr-Mar. FY label = year after March
   const fyEndYear = now.getMonth() >= 3 ? now.getFullYear() + 1 : now.getFullYear();
   const fyLabel = String(fyEndYear);
-  const pattern = new RegExp(`^${prefix}:${fyLabel}_(\\d+)$`);
+  const pattern = new RegExp(`^${p}:${fyLabel}_(\\d+)$`);
   let max = 0;
   for (const n of existing) {
-    const m = n.match(pattern);
+    const m = (n || "").match(pattern);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   const seq = String(max + 1).padStart(7, "0");
-  return `${prefix}:${fyLabel}_${seq}`;
+  return `${p}:${fyLabel}_${seq}`;
 }
