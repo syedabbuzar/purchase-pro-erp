@@ -1,4 +1,4 @@
-import { Company, Customer, Invoice, InvoiceItem, InvoiceReturnItem } from "@/lib/db";
+import type { Company, Customer, Invoice, InvoiceItem } from "@/lib/types";
 import { inr, inrWords } from "@/lib/num";
 import { format } from "date-fns";
 
@@ -7,12 +7,11 @@ interface Props {
   items: InvoiceItem[];
   customer: Customer;
   company: Company;
-  returnItems?: InvoiceReturnItem[];
 }
 
 const ROWS_PER_PAGE = 10;
 
-export function InvoiceSheet({ invoice, items, customer, company, returnItems = [] }: Props) {
+export function InvoiceSheet({ invoice, items, customer, company }: Props) {
   const pages: InvoiceItem[][] = [];
   for (let i = 0; i < items.length; i += ROWS_PER_PAGE) {
     pages.push(items.slice(i, i + ROWS_PER_PAGE));
@@ -20,10 +19,8 @@ export function InvoiceSheet({ invoice, items, customer, company, returnItems = 
   if (pages.length === 0) pages.push([]);
   const interState = !!customer.stateCode && customer.stateCode !== company.stateCode;
 
-  const totalBoxes = items.reduce((s, i) => s + i.boxes, 0);
-  const totalPieces = items.reduce((s, i) => s + i.pieces, 0);
-  const totalFree = items.reduce((s, i) => s + i.free, 0);
-  const returnTotal = returnItems.reduce((s, i) => s + i.netAmount, 0);
+  const totalBoxes = items.reduce((s, i) => s + (i.boxes || 0), 0);
+  const totalPieces = items.reduce((s, i) => s + (i.pieces || 0), 0);
 
   return (
     <div className="print-invoice">
@@ -36,13 +33,10 @@ export function InvoiceSheet({ invoice, items, customer, company, returnItems = 
                 <th className="w-6">Sr</th>
                 <th className="w-14">HSN</th>
                 <th className="text-left">Description</th>
-                <th className="w-14">MRP</th>
+                <th className="w-14">Batch</th>
                 <th className="w-14">Rate</th>
                 <th className="w-10">Box</th>
                 <th className="w-10">Pcs</th>
-                <th className="w-10">Free</th>
-                <th className="w-14">Scheme</th>
-                <th className="w-10">Disc</th>
                 <th className="w-10">GST%</th>
                 <th className="w-14">GST</th>
                 <th className="w-16">Net Amt</th>
@@ -50,25 +44,22 @@ export function InvoiceSheet({ invoice, items, customer, company, returnItems = 
             </thead>
             <tbody>
               {pageItems.map((it) => (
-                <tr key={it.id}>
-                  <td className="text-center">{it.srNo}</td>
+                <tr key={it._id || `${pi}-${it.name}`}>
+                  <td className="text-center">{pi * ROWS_PER_PAGE + pageItems.indexOf(it) + 1}</td>
                   <td className="text-center">{it.hsn}</td>
-                  <td>{it.description}</td>
-                  <td className="text-right">{inr(it.mrp)}</td>
+                  <td>{it.name}</td>
+                  <td className="text-center">{it.batch || ""}</td>
                   <td className="text-right">{inr(it.rate)}</td>
                   <td className="text-center">{it.boxes || ""}</td>
                   <td className="text-center">{it.pieces || ""}</td>
-                  <td className="text-center">{it.free || ""}</td>
-                  <td className="text-right">{it.scheme ? inr(it.scheme) : ""}</td>
-                  <td className="text-right">{it.discount ? it.discount + "%" : ""}</td>
                   <td className="text-center">{it.gstPct}</td>
                   <td className="text-right">{inr(it.gstAmount)}</td>
-                  <td className="text-right">{inr(it.netAmount)}</td>
+                  <td className="text-right">{inr(it.amount)}</td>
                 </tr>
               ))}
               {Array.from({ length: Math.max(0, ROWS_PER_PAGE - pageItems.length) }).map((_, i) => (
                 <tr key={"e" + i}>
-                  <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                  <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
               ))}
             </tbody>
@@ -77,9 +68,8 @@ export function InvoiceSheet({ invoice, items, customer, company, returnItems = 
           {pi === pages.length - 1 && (
             <Footer
               invoice={invoice} company={company} interState={interState}
-              totalBoxes={totalBoxes} totalPieces={totalPieces} totalFree={totalFree}
+              totalBoxes={totalBoxes} totalPieces={totalPieces}
               itemCount={items.length}
-              returnTotal={returnTotal}
             />
           )}
         </div>
@@ -94,12 +84,12 @@ function Header({ company, customer, invoice, page, totalPages }: { company: Com
       <tbody>
         <tr>
           <td className="no-border w-[38%] align-top" style={{ border: "1px solid #000", padding: 4 }}>
-            <div className="text-[9px]">Retailer Code: {customer.id ? String(customer.id).padStart(12, "0") : ""}</div>
+            <div className="text-[9px]">Retailer Code: {customer._id ? String(customer._id).slice(-12) : ""}</div>
             <div className="font-bold text-[13px]">{customer.name}</div>
             {customer.shopName && <div className="text-[10px]">{customer.shopName}</div>}
             {customer.address && <div className="text-[10px]">{customer.address}</div>}
             {customer.city && <div className="text-[10px]">{customer.city} {customer.pincode}</div>}
-            <div className="text-[10px]">Place of Supply: {customer.state || invoice.placeOfSupply} ({customer.stateCode || "-"})</div>
+            <div className="text-[10px]">Place of Supply: {customer.state || "-"} ({customer.stateCode || "-"})</div>
             {customer.mobile && <div className="text-[10px]">PH: {customer.mobile}</div>}
             {customer.gstin && <div className="text-[10px]">GSTIN/PAN: {customer.gstin} / {customer.pan || ""}</div>}
             <div className="text-[10px]">FSSAI:</div>
@@ -116,8 +106,7 @@ function Header({ company, customer, invoice, page, totalPages }: { company: Com
           <td className="no-border w-[24%] align-top" style={{ border: "1px solid #000", padding: 4 }}>
             <div className="text-[10px] text-right">Duplicate Invoice Copy &nbsp; Page {page} of {totalPages}</div>
             <div className="text-[10px] mt-1"><b>Bill No:</b> {invoice.number}</div>
-            <div className="text-[10px]"><b>Bill Date:</b> {format(invoice.date, "dd/MM/yyyy")}</div>
-            {invoice.salesman && <div className="text-[10px]"><b>Sales Man:</b> {invoice.salesman}</div>}
+            <div className="text-[10px]"><b>Bill Date:</b> {invoice.date ? format(new Date(invoice.date), "dd/MM/yyyy") : "—"}</div>
             <div className="mt-1 inline-block bg-black text-white text-[10px] px-1 font-bold">NO EXCHANGE NO RETURN</div>
             <div className="text-[10px] mt-1 font-semibold">CHEQUE BOUNCE FEES 530/- RS EXTRA</div>
           </td>
@@ -127,10 +116,9 @@ function Header({ company, customer, invoice, page, totalPages }: { company: Com
   );
 }
 
-function Footer({ invoice, company, interState, totalBoxes, totalPieces, totalFree, itemCount, returnTotal }: {
+function Footer({ invoice, company, interState, totalBoxes, totalPieces, itemCount }: {
   invoice: Invoice; company: Company; interState: boolean;
-  totalBoxes: number; totalPieces: number; totalFree: number; itemCount: number;
-  returnTotal: number;
+  totalBoxes: number; totalPieces: number; itemCount: number;
 }) {
   return (
     <>
@@ -144,9 +132,6 @@ function Footer({ invoice, company, interState, totalBoxes, totalPieces, totalFr
             <td className="w-14"></td>
             <td className="w-10 text-center font-bold">{totalBoxes}</td>
             <td className="w-10 text-center font-bold">{totalPieces}</td>
-            <td className="w-10 text-center font-bold">{totalFree}</td>
-            <td className="w-14"></td>
-            <td className="w-10"></td>
             <td className="w-10"></td>
             <td className="w-14 text-right font-bold">{inr(invoice.cgst + invoice.sgst + invoice.igst)}</td>
             <td className="w-16 text-right font-bold">{inr(invoice.taxable + invoice.cgst + invoice.sgst + invoice.igst)}</td>
@@ -185,10 +170,8 @@ function Footer({ invoice, company, interState, totalBoxes, totalPieces, totalFr
                 <tbody>
                   <tr><td className="no-border py-0.5">CD Disc Amt:</td><td className="no-border text-right"></td></tr>
                   <tr><td className="no-border py-0.5">Taxable Amt:</td><td className="no-border text-right font-semibold">{inr(invoice.taxable)}</td></tr>
-                  <tr><td className="no-border py-0.5">Credit Note Amt:</td><td className="no-border text-right">{returnTotal ? inr(returnTotal) : ""}</td></tr>
-                  <tr><td className="no-border py-0.5">Debit Note Amt:</td><td className="no-border text-right"></td></tr>
-                  <tr><td className="no-border py-0.5">Round Off:</td><td className="no-border text-right">{inr(invoice.roundOff)}</td></tr>
-                  <tr><td className="no-border py-1 font-bold text-[12px]">Receivable Amt:</td><td className="no-border py-1 text-right font-bold text-[12px]">{inr(invoice.total - returnTotal)}</td></tr>
+                  <tr><td className="no-border py-0.5">Total GST:</td><td className="no-border text-right">{inr(invoice.cgst + invoice.sgst + invoice.igst)}</td></tr>
+                  <tr><td className="no-border py-1 font-bold text-[12px]">Receivable Amt:</td><td className="no-border py-1 text-right font-bold text-[12px]">{inr(invoice.total)}</td></tr>
                 </tbody>
               </table>
               <div className="text-[10px] text-right italic mt-1">{inrWords(invoice.total)}</div>
@@ -201,7 +184,6 @@ function Footer({ invoice, company, interState, totalBoxes, totalPieces, totalFr
         <tbody>
           <tr>
             <td className="no-border w-[60%] align-top text-[9px]">
-              {invoice.remarks && <div><b>Remark:</b> {invoice.remarks}</div>}
               <div className="mt-1">{company.terms}</div>
             </td>
             <td className="no-border w-[40%] text-right align-bottom text-[10px]">
