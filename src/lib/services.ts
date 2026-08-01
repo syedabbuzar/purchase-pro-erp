@@ -1,4 +1,4 @@
-import { post, get, put, del, setToken } from "./api";
+import api, { post, get, put, del, setToken } from "./api";
 import type {
   Company,
   Customer,
@@ -18,9 +18,8 @@ import type {
   SalesReport,
   StockRow,
 } from "./types";
-import { api } from "./api";
 
-/* ---------------- Admin / Auth ---------------- */
+/* ---------------- Admin / Auth  ->  /admin ---------------- */
 export interface LoginResponse {
   success: boolean;
   message: string;
@@ -34,7 +33,7 @@ export async function loginApi(username: string, password: string) {
   return res.data;
 }
 
-/* ---------------- Products ---------------- */
+/* ---------------- Products  ->  /products ---------------- */
 export const productsApi = {
   list: (search?: string) => get<Product[]>("/products/get-all", search ? { search } : undefined),
   getById: (id: string) => get<Product>(`/products/get/${id}`),
@@ -43,17 +42,18 @@ export const productsApi = {
   remove: (id: string) => del<Product>(`/products/delete/${id}`),
 };
 
-/* ---------------- Customers ---------------- */
+/* ---------------- Customers  ->  /customers ---------------- */
 export const customersApi = {
   list: (search?: string) => get<Customer[]>("/customers", search ? { search } : undefined),
   profile: (id: string) => get<CustomerProfileData>(`/customers/${id}`),
   create: (data: Partial<Customer>) => post<Customer>("/customers", data),
   update: (id: string, data: Partial<Customer>) => put<Customer>(`/customers/${id}`, data),
-  /** Backend exposes no hard delete — customers are deactivated instead. */
+  /** Permanent delete — DELETE /customers/delete/:id (auth protected) */
+  remove: (id: string) => del<Customer>(`/customers/delete/${id}`),
   deactivate: (id: string) => put<Customer>(`/customers/${id}`, { status: "inactive" }),
 };
 
-/* ---------------- Company ---------------- */
+/* ---------------- Company  ->  /company ---------------- */
 export const companyApi = {
   get: () => get<Company | null>("/company"),
   create: (data: Partial<Company>) => post<Company>("/company", data),
@@ -61,9 +61,9 @@ export const companyApi = {
   remove: (id: string) => del<Company>(`/company/${id}`),
 };
 
-/* ---------------- Purchases ---------------- */
+/* ---------------- Purchases  ->  /purchases ---------------- */
 export interface PurchasePayload extends Partial<Purchase> {
-  items: PurchaseItem[];
+  items: Partial<PurchaseItem>[];
 }
 
 export const purchasesApi = {
@@ -74,9 +74,9 @@ export const purchasesApi = {
   remove: (id: string) => del<Purchase>(`/purchases/delete/${id}`),
 };
 
-/* ---------------- Invoices ---------------- */
+/* ---------------- Invoices  ->  /invoice ---------------- */
 export interface InvoicePayload extends Partial<Invoice> {
-  items: InvoiceItem[];
+  items: Partial<InvoiceItem>[];
 }
 
 export const invoicesApi = {
@@ -88,7 +88,7 @@ export const invoicesApi = {
   remove: (id: string) => del<Invoice>(`/invoice/delete/${id}`),
 };
 
-/* ---------------- Stock ---------------- */
+/* ---------------- Stock  ->  /stock ---------------- */
 export const stockApi = {
   list: () => get<StockRow[]>("/stock"),
   adjust: (data: { productId: string; boxes: number; pieces: number; note?: string }) =>
