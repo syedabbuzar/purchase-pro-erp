@@ -51,8 +51,8 @@ function Customers() {
   const confirmDelete = async () => {
     if (!deleting?._id) return;
     try {
-      await customersApi.deactivate(deleting._id);
-      toast.success("Customer deactivated");
+      await customersApi.remove(deleting._id);
+      toast.success("Customer deleted");
       setDeleting(null);
       await refresh();
     } catch (e) {
@@ -135,12 +135,12 @@ function Customers() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleting?.name} will be deactivated. Invoice history is preserved, so the customer is never hard-deleted.
+              {deleting?.name} will be permanently deleted from the backend. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Deactivate</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
