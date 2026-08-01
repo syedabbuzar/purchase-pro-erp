@@ -1,321 +1,250 @@
-import { useNavigate } from "react-router-dom";
-import { useSearchParams } from "react-router-dom";
-import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useMemo, useState } from "react";
-import { db, currentStock, type Product, type Customer } from "@/lib/db";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { computeItem, computeInvoice, nextInvoiceNumber } from "@/lib/gst";
-import { inr } from "@/lib/num";
-import { inrWords } from "@/lib/num";
-import { formatQty } from "@/lib/qty";
+import { Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth";
-import { Trash2, Search } from "lucide-react";
+import { inr } from "@/lib/num";
+import { formatQty } from "@/lib/qty";
+import { computeInvoice, computeItem, nextInvoiceNumber, type ComputedItem } from "@/lib/gst";
+import { useApi } from "@/hooks/use-api";
+import { apiErrorMessage } from "@/lib/api";
+import { companyApi, customersApi, invoicesApi, productsApi, stockApi } from "@/lib/services";
+import type { Product, StockRow } from "@/lib/types";
 
 interface Row {
-  productId: number;
-  hsn: string; description: string;
-  mrp: number; rate: number;
-  boxes: number; pieces: number; boxSize: number;
-  free: number; scheme: number; discount: number; gstPct: number;
+  productId: string;
+  name: string;
+  hsn: string;
+  batch?: string;
+  gstPct: number;
+  boxSize: number;
+  boxes: number;
+  pieces: number;
+  rate: number;
+  discount: number;
 }
 
-interface StockIssue {
-  productName: string;
-  available: number;
-  required: number;
-  remaining: number;
-}
-
-function BillingPage() {
-    const [searchParams] = useSearchParams();
-  const editId = searchParams.get("edit") ? Number(searchParams.get("edit")) || undefined : undefined;
-  const duplicateId = searchParams.get("duplicate") ? Number(searchParams.get("duplicate")) || undefined : undefined;
-  const products = useLiveQuery(() => db.products.where("status").equals("active").sortBy("name"), []);
-  const customers = useLiveQuery(() => db.customers.orderBy("name").toArray(), []);
-  const company = useLiveQuery(() => db.company.toCollection().first(), []);
-  const ledger = useLiveQuery(() => db.stockLedger.toArray(), []);
-
-  const stockOf = (p: Product) => {
-    const bs = p.boxSize || 1;
-    const total = (ledger || [])
-      .filter((e) => e.productId === p.id)
-      .reduce((s, e) => s + e.boxes * bs + e.pieces, 0);
-    return { total, label: formatQty(total, bs) };
-  };
-  const [rows, setRows] = useState<Row[]>([]);
-  const [customerId, setCustomerId] = useState<number | null>(null);
-  const [newCust, setNewCust] = useState(false);
-  const [meta, setMeta] = useState({
-    paymentMode: "Cash", placeOfSupply: "Maharashtra",
-    date: new Date().toISOString().slice(0, 10),
-  });
-  const [addSearch, setAddSearch] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [stockIssue, setStockIssue] = useState<StockIssue | null>(null);
-  const [loadedDraftFor, setLoadedDraftFor] = useState<string | null>(null);
+function Billing() {
   const navigate = useNavigate();
-  const session = useAuth((s) => s.session);
+  const [params] = useSearchParams();
+  const editId = params.get("edit");
+  const duplicateId = params.get("duplicate");
 
-  const customer = customers?.find((c) => c.id === customerId) || null;
-  const isEditing = !!editId;
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [customerId, setCustomerId] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [rows, setRows] = useState<Row[]>([]);
+  const [search, setSearch] = useState("");
+  const [loadedNumber, setLoadedNumber] = useState<string>("");
 
+  const { data: products } = useApi(() => productsApi.list(), []);
+  const { data: customers } = useApi(() => customersApi.list(), []);
+  const { data: company } = useApi(() => companyApi.get(), []);
+  const { data: invoices, refresh: refreshInvoices } = useApi(() => invoicesApi.list(), []);
+  const { data: stock } = useApi(() => stockApi.list(), []);
+
+  const stockByProduct = useMemo(() => {
+    const m = new Map<string, StockRow>();
+    (stock || []).forEach((s) => m.set(String(s.productId), s));
+    return m;
+  }, [stock]);
+
+  // Load an existing invoice for edit / duplicate
   useEffect(() => {
-    const sourceId = editId || duplicateId;
-    if (!sourceId) return;
-    const key = `${editId ? "edit" : "duplicate"}:${sourceId}`;
-    if (loadedDraftFor === key) return;
+    const id = editId || duplicateId;
+    if (!id) return;
+    (async () => {
+      try {
+        const res = await invoicesApi.getById(id);
+        if (!res?.invoice) return;
+        setCustomerId(String(res.invoice.customerId));
+        if (editId) {
+          setLoadedNumber(res.invoice.number);
+          setDate(new Date(res.invoice.date).toISOString().slice(0, 10));
+        }
+        setRows(
+          (res.items || []).map((it) => ({
+            productId: String(it.productId),
+            name: it.name,
+            hsn: it.hsn || "",
+            batch: it.batch || "",
+            gstPct: it.gstPct || 0,
+            boxSize: it.boxSize || 1,
+            boxes: it.boxes || 0,
+            pieces: it.pieces || 0,
+            rate: it.rate || 0,
+            discount: 0,
+          })),
+        );
+      } catch (e) {
+        toast.error(apiErrorMessage(e));
+      }
+    })();
+  }, [editId, duplicateId]);
 
-    let cancelled = false;
-    async function loadInvoiceDraft() {
-      const sid = sourceId as number;
-      const invoice = await db.invoices.get(sid);
-      if (!invoice || cancelled) return;
-      const items = (await db.invoiceItems.where("invoiceId").equals(sid).toArray()).sort((a, b) => a.srNo - b.srNo);
-      if (cancelled) return;
-      setCustomerId(invoice.customerId);
-      setMeta({
-        paymentMode: invoice.paymentMode || "Cash",
-        placeOfSupply: invoice.placeOfSupply || "Maharashtra",
-        date: editId ? new Date(invoice.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-      });
-      setRows(items.map((it) => ({
-        productId: it.productId,
-        hsn: it.hsn,
-        description: it.description,
-        mrp: it.mrp,
-        rate: it.rate,
-        boxes: it.boxes,
-        pieces: it.pieces,
-        boxSize: it.boxSize,
-        free: it.free,
-        scheme: it.scheme,
-        discount: it.discount,
-        gstPct: it.gstPct,
-      })));
-      setLoadedDraftFor(key);
-      toast.info(editId ? `Editing invoice ${invoice.number}` : `Duplicated from invoice ${invoice.number}`);
-    }
-    loadInvoiceDraft();
+  const customer = (customers || []).find((c) => String(c._id) === customerId) || null;
 
-    return () => { cancelled = true; };
-  }, [editId, duplicateId, loadedDraftFor]);
-
-
-  const updateRow = (idx: number, patch: Partial<Row>) => {
-    setRows((rs) => rs.map((r, i) => i === idx ? { ...r, ...patch } : r));
-  };
-
-  const addProductToInvoice = (p: Product) => {
-    if (rows.some((r) => r.productId === p.id)) { toast.info("Already in invoice"); return; }
-    setRows((rs) => [...rs, {
-      productId: p.id!, hsn: p.hsn, description: p.name,
-      mrp: p.mrp, rate: p.rate, boxes: 0, pieces: 1, boxSize: p.boxSize,
-      free: 0, scheme: 0, discount: 0, gstPct: p.gstPct,
-    }]);
-    setAddSearch("");
-  };
-
-  const computedRows = rows.map((r) => {
+  const computedRows: ComputedItem[] = rows.map((r) => {
     const c = computeItem(r);
-    return { ...r, taxable: c.taxable, gstAmount: c.gstAmount, netAmount: c.netAmount, totalPieces: c.totalPieces };
+    return { ...r, taxable: c.taxable, gstAmount: c.gstAmount, netAmount: c.netAmount };
   });
+  const totals = computeInvoice(computedRows, company || null, customer);
+  const interState =
+    !!customer?.stateCode && !!company?.stateCode && customer.stateCode !== company.stateCode;
 
-  const totals = company ? computeInvoice(computedRows, company, customer) : null;
-
-  const findStockIssue = async (): Promise<StockIssue | null> => {
-    const originalSold = new Map<number, number>();
-    if (editId) {
-      const oldItems = await db.invoiceItems.where("invoiceId").equals(editId).toArray();
-      for (const it of oldItems) {
-        originalSold.set(it.productId, (originalSold.get(it.productId) || 0) + it.boxes * it.boxSize + it.pieces + it.free);
-      }
-    }
-
-    for (const r of rows) {
-      const st = await currentStock(r.productId);
-      const available = st.totalPieces + (originalSold.get(r.productId) || 0);
-      const required = r.boxes * r.boxSize + r.pieces + r.free;
-      if (available < required) {
-        const p = products!.find((x) => x.id === r.productId);
-        return {
-          productName: p?.name || r.description,
-          available,
-          required,
-          remaining: available - required,
-        };
-      }
-    }
-    return null;
-  };
-
-  const saveInvoice = async () => {
-    if (!customer || !company || !totals) { toast.error("Customer required"); return; }
-    if (rows.length === 0) { toast.error("Add at least one item"); return; }
-    if (computedRows.some((r) => r.totalPieces <= 0 && r.free <= 0)) { toast.error("Every item must have boxes, pieces, or free quantity"); return; }
-    if (saving) return;
-
-    // Stock must NEVER go negative. Block save if requested > available.
-    const issue = await findStockIssue();
-    if (issue) {
-      setStockIssue(issue);
+  const addProduct = (p: Product) => {
+    if (rows.some((r) => r.productId === p._id)) {
+      toast.info("Already added");
       return;
     }
+    setRows((rs) => [
+      ...rs,
+      {
+        productId: p._id,
+        name: p.name,
+        hsn: p.hsn || "",
+        gstPct: p.gstPct,
+        boxSize: p.boxSize || 1,
+        boxes: 0,
+        pieces: 0,
+        rate: p.rate || 0,
+        discount: 0,
+      },
+    ]);
+    setSearch("");
+  };
 
-    setSaving(true);
-    const dateTs = new Date(meta.date).getTime();
+  const updateRow = (i: number, patch: Partial<Row>) =>
+    setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
+
+  const resetForm = () => {
+    setRows([]);
+    setCustomerId("");
+    setLoadedNumber("");
+    setDate(new Date().toISOString().slice(0, 10));
+    setSearch("");
+  };
+
+  const save = async () => {
+    if (!customerId) { toast.error("Select a customer"); return; }
+    if (rows.length === 0) { toast.error("Add at least one item"); return; }
+    for (const r of rows) {
+      const qty = r.boxes * (r.boxSize || 1) + r.pieces;
+      if (qty <= 0) { toast.error(`Enter quantity for "${r.name}"`); return; }
+      if (!editId) {
+        const available = stockByProduct.get(r.productId)?.remainingPieces ?? 0;
+        if (qty > available) {
+          toast.error(`Only ${formatQty(available, r.boxSize || 1)} available for "${r.name}"`);
+          return;
+        }
+      }
+    }
+    if (savingRef.current) return;
+
     try {
-      const invoiceId = await db.transaction("rw", [db.invoices, db.invoiceItems, db.invoiceReturns, db.stockLedger, db.payments, db.audit], async () => {
-        let savedInvoiceId = editId;
-        let number: string;
+      savingRef.current = true;
+      setSaving(true);
 
-        if (editId) {
-          const existing = await db.invoices.get(editId);
-          if (!existing) throw new Error("Invoice not found");
-          const returnCount = await db.invoiceReturns.where("invoiceId").equals(editId).count();
-          if (returnCount > 0) throw new Error("Invoice has returned items and cannot be edited");
-          number = existing.number;
-          await db.invoices.update(editId, {
-            date: dateTs, customerId: customer.id!,
-            placeOfSupply: meta.placeOfSupply,
-            paymentMode: meta.paymentMode,
-            subtotal: totals.subtotal, totalDiscount: totals.totalDiscount,
-            taxable: totals.taxable, cgst: totals.cgst, sgst: totals.sgst, igst: totals.igst,
-            roundOff: totals.roundOff, total: totals.total,
-            amountInWords: inrWords(totals.total),
-            status: "active",
-          });
-          await db.invoiceItems.where("invoiceId").equals(editId).delete();
-          const saleLedgers = (await db.stockLedger.where("refId").equals(editId).toArray()).filter((x) => x.type === "sale");
-          await Promise.all(saleLedgers.map((x) => db.stockLedger.delete(x.id!)));
-          await db.payments.where("invoiceId").equals(editId).delete();
-        } else {
-          const numbers = (await db.invoices.toArray()).map((x) => x.number);
-          number = nextInvoiceNumber(company.invoicePrefix, numbers);
-          savedInvoiceId = await db.invoices.add({
-            number, date: dateTs, customerId: customer.id!,
-            placeOfSupply: meta.placeOfSupply,
-            paymentMode: meta.paymentMode,
-            subtotal: totals.subtotal, totalDiscount: totals.totalDiscount,
-            taxable: totals.taxable, cgst: totals.cgst, sgst: totals.sgst, igst: totals.igst,
-            roundOff: totals.roundOff, total: totals.total,
-            amountInWords: inrWords(totals.total),
-            status: "active", createdBy: undefined, createdAt: Date.now(),
-          }) as number;
-        }
+      const number =
+        loadedNumber ||
+        nextInvoiceNumber(company?.invoicePrefix || "INV", (invoices || []).map((i) => i.number));
 
-        for (let i = 0; i < computedRows.length; i++) {
-          const r = computedRows[i];
-          await db.invoiceItems.add({
-            invoiceId: savedInvoiceId as number, srNo: i + 1,
-            productId: r.productId, hsn: r.hsn, description: r.description,
-            mrp: r.mrp, rate: r.rate, boxes: r.boxes, pieces: r.pieces, boxSize: r.boxSize,
-            free: r.free, scheme: r.scheme, discount: r.discount, gstPct: r.gstPct,
-            taxable: r.taxable, gstAmount: r.gstAmount, netAmount: r.netAmount,
-          });
-          await db.stockLedger.add({
-            productId: r.productId, ts: Date.now(), type: "sale",
-            boxes: -r.boxes, pieces: -(r.pieces + r.free),
-            refId: savedInvoiceId as number, note: `Sale ${number}`,
-          });
-        }
+      const payload = {
+        number,
+        customerId,
+        date: new Date(date).toISOString(),
+        taxable: totals.taxable,
+        cgst: totals.cgst,
+        sgst: totals.sgst,
+        igst: totals.igst,
+        total: totals.total,
+        status: "active" as const,
+        items: rows.map((r) => {
+          const c = computeItem(r);
+          return {
+            productId: r.productId,
+            name: r.name,
+            hsn: r.hsn,
+            batch: r.batch || undefined,
+            gstPct: r.gstPct,
+            boxes: r.boxes,
+            pieces: r.pieces,
+            boxSize: r.boxSize,
+            rate: r.rate,
+            taxable: c.taxable,
+            gstAmount: c.gstAmount,
+            amount: c.netAmount,
+          };
+        }),
+      };
 
-        if (meta.paymentMode === "Cash") {
-          await db.payments.add({
-            customerId: customer.id!, invoiceId: savedInvoiceId as number,
-            amount: totals.total, mode: "Cash", ts: dateTs,
-          });
-        }
+      // Backend handles stock ledger on create / update / cancel.
+      const saved = editId
+        ? await invoicesApi.update(editId, payload)
+        : await invoicesApi.create(payload);
 
-        await db.audit.add({
-          ts: Date.now(), userId: undefined,
-          action: editId ? "update" : "create", entity: "invoice", entityId: savedInvoiceId as number,
-        });
-        return savedInvoiceId as number;
-      });
-
-      setStockIssue(null);
-      toast.success(isEditing ? "Invoice updated successfully" : "Invoice saved successfully");
-      navigate(`/invoice-preview/${String(invoiceId)}`);
+      toast.success(editId ? "Invoice updated" : "Invoice saved");
+      await refreshInvoices();
+      resetForm();
+      const id = (saved as { _id?: string })?._id || editId;
+      navigate(id ? `/invoices/${id}` : "/invoices");
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(apiErrorMessage(e));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
+  const cancelEntry = () => {
+    // Discards everything — nothing is saved to invoice, stock or ledger.
+    resetForm();
+    toast.info("Entry cancelled — nothing was saved");
+    navigate("/invoices");
+  };
+
+  const results = search
+    ? (products || []).filter((p) => p.name.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
+    : [];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-bold">{isEditing ? "Edit Invoice" : "New Invoice"}</h1>
-        <Button
-          className="ml-auto"
-          variant="outline"
-          disabled={saving}
-          onClick={() => {
-            // Cancel before saving: nothing is written — no invoice, no stock
-            // change, no ledger, no payment, no history.
-            setRows([]);
-            setCustomerId(null);
-            toast.info("Cancelled — nothing was saved");
-            navigate(isEditing ? `/invoice-preview/${String(editId)}` : "/invoices");
-          }}
-        >
-          Cancel
-        </Button>
-        <Button onClick={() => saveInvoice()} disabled={saving}>{saving ? "Saving..." : isEditing ? "Update Invoice" : "Save Invoice"}</Button>
-      </div>
-
-
+      <h1 className="text-2xl font-bold">{editId ? "Edit Invoice" : "Billing"}</h1>
       <Card>
-        <CardContent className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="lg:col-span-2">
-            <Label>Customer *</Label>
-            <div className="flex gap-2">
-              <Select value={customerId ? String(customerId) : ""} onValueChange={(v) => setCustomerId(+v)}>
-                <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
-                <SelectContent>{customers?.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name} — {c.mobile}</SelectItem>)}</SelectContent>
-              </Select>
-              <Dialog open={newCust} onOpenChange={setNewCust}>
-                <DialogTrigger asChild><Button variant="outline">New</Button></DialogTrigger>
-                <QuickCustomer onSaved={(id) => { setCustomerId(id); setNewCust(false); }} />
-              </Dialog>
-            </div>
-          </div>
-          <div><Label>Bill Date</Label><Input type="date" value={meta.date} onChange={(e) => setMeta({ ...meta, date: e.target.value })} /></div>
-          <div><Label>Place of Supply</Label><Input value={meta.placeOfSupply} onChange={(e) => setMeta({ ...meta, placeOfSupply: e.target.value })} /></div>
-          <div><Label>Payment Mode</Label>
-            <Select value={meta.paymentMode} onValueChange={(v) => setMeta({ ...meta, paymentMode: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{["Cash", "Credit", "UPI", "Cheque", "Bank Transfer"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-center gap-2">
-          <CardTitle className="mr-auto">Items</CardTitle>
-          <div className="relative">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <CardTitle className="sm:mr-auto">
+            {editId ? `Invoice ${loadedNumber}` : "New Invoice"}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {interState ? "IGST (Inter-State)" : "CGST + SGST (Intra-State)"}
+            </span>
+          </CardTitle>
+          <div className="relative w-full sm:w-80">
             <Search className="h-4 w-4 absolute left-2 top-2.5 text-muted-foreground" />
-            <Input placeholder="Add another product..." value={addSearch} onChange={(e) => setAddSearch(e.target.value)} className="pl-8 w-72" />
-            {addSearch && (
-              <div className="absolute z-10 mt-1 w-72 max-h-64 overflow-auto rounded-md border bg-popover shadow-lg">
-                {(products || []).filter((p) => p.name.toLowerCase().includes(addSearch.toLowerCase()) || p.hsn.includes(addSearch)).slice(0, 10).map((p) => {
-                  const s = stockOf(p);
+            <Input
+              placeholder="Search product..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 w-full"
+            />
+            {results.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-md border bg-popover shadow-lg">
+                {results.map((p) => {
+                  const rem = stockByProduct.get(p._id)?.remainingPieces ?? 0;
                   return (
-                    <button key={p.id} onClick={() => addProductToInvoice(p)} className="block w-full text-left px-3 py-2 text-sm hover:bg-accent">
-                      <div className="flex justify-between gap-2">
-                        <span>{p.name} <span className="text-muted-foreground text-xs">— {p.hsn}</span></span>
-                        <span className={"text-xs " + (s.total > 0 ? "text-green-700" : "text-destructive")}>Stock: {s.label}</span>
-                      </div>
+                    <button
+                      key={p._id}
+                      onClick={() => addProduct(p)}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      {p.name}
+                      <span className="text-muted-foreground text-xs">
+                        {" "}— ₹{inr(p.rate)} · GST {p.gstPct}% · Stock {formatQty(rem, p.boxSize || 1)}
+                      </span>
                     </button>
                   );
                 })}
@@ -323,124 +252,104 @@ function BillingPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-xs min-w-[1180px]">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="p-1 w-10">Sr</th>
-                <th className="min-w-[90px]">HSN</th>
-                <th className="text-left min-w-[240px]">Description</th>
-                <th className="min-w-[90px]">MRP</th>
-                <th className="min-w-[90px]">Rate</th>
-                <th className="min-w-[80px]">Box</th>
-                <th className="min-w-[80px]">Pcs</th>
-                <th className="min-w-[70px]">Free</th>
-                <th className="min-w-[90px]">Scheme</th>
-                <th className="min-w-[70px]">Disc%</th>
-                <th className="min-w-[80px]">GST%</th>
-                <th className="min-w-[100px]">Taxable</th>
-                <th className="min-w-[90px]">GST</th>
-                <th className="min-w-[110px]">Net</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {computedRows.map((r, i) => (
-                <tr key={i} className="border-t">
-                  <td className="p-1 text-center">{i + 1}</td>
-                  <td className="text-center">{r.hsn}</td>
-                  <td>{r.description}</td>
-                  <td><Input className="h-7 w-20" type="number" value={r.mrp} onChange={(e) => updateRow(i, { mrp: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-20" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-16" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-16" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-14" type="number" value={r.free} onChange={(e) => updateRow(i, { free: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-20" type="number" value={r.scheme} onChange={(e) => updateRow(i, { scheme: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-14" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} /></td>
-                  <td><Input className="h-7 w-16" type="number" value={r.gstPct} onChange={(e) => updateRow(i, { gstPct: +e.target.value })} /></td>
-                  <td className="text-right pr-1">{inr(r.taxable)}</td>
-                  <td className="text-right pr-1">{inr(r.gstAmount)}</td>
-                  <td className="text-right pr-1 font-semibold">{inr(r.netAmount)}</td>
-                  <td><Button size="icon" variant="ghost" onClick={() => setRows((rs) => rs.filter((_, x) => x !== i))}><Trash2 className="h-3 w-3" /></Button></td>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <Label>Customer *</Label>
+              <Select value={customerId} onValueChange={setCustomerId}>
+                <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
+                <SelectContent>
+                  {(customers || []).map((c) => (
+                    <SelectItem key={c._id} value={String(c._id)}>
+                      {c.name}{c.shopName ? ` — ${c.shopName}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Invoice Date</Label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+            <div><Label>Invoice No</Label><Input value={loadedNumber} placeholder="Auto-generated on save" readOnly /></div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[1150px]">
+              <thead className="bg-muted/50 text-left">
+                <tr>
+                  <th className="p-2 min-w-[240px]">Description</th>
+                  <th className="min-w-[110px]">HSN</th>
+                  <th className="min-w-[110px]">Batch</th>
+                  <th className="text-right min-w-[110px]">Rate/Pc</th>
+                  <th className="text-right min-w-[90px]">Pcs/Box</th>
+                  <th className="text-right min-w-[90px]">Box</th>
+                  <th className="text-right min-w-[90px]">Pcs</th>
+                  <th className="text-right min-w-[90px]">Disc%</th>
+                  <th className="text-right min-w-[90px]">GST%</th>
+                  <th className="text-right min-w-[110px]">Taxable</th>
+                  <th className="text-right min-w-[110px]">Net Amt</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const c = computeItem(r);
+                  const rem = stockByProduct.get(r.productId)?.remainingPieces ?? 0;
+                  return (
+                    <tr key={r.productId} className="border-t">
+                      <td className="p-1">
+                        <div className="font-medium">{r.name}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          Stock: {formatQty(rem, r.boxSize || 1)} · Qty: {c.totalPieces} pcs
+                        </div>
+                      </td>
+                      <td>{r.hsn || "—"}</td>
+                      <td><Input className="h-7 w-28" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} /></td>
+                      <td><Input className="h-7 w-24" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
+                      <td className="text-right pr-2">{r.boxSize}</td>
+                      <td><Input className="h-7 w-20" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
+                      <td><Input className="h-7 w-20" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
+                      <td><Input className="h-7 w-20" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} /></td>
+                      <td className="text-right pr-2">{r.gstPct}%</td>
+                      <td className="text-right pr-2">{inr(c.taxable)}</td>
+                      <td className="text-right pr-2 font-semibold">{inr(c.netAmount)}</td>
+                      <td>
+                        <Button size="icon" variant="ghost" onClick={() => setRows((rs) => rs.filter((_, k) => k !== i))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {rows.length === 0 && (
+                  <tr><td colSpan={12} className="text-center p-6 text-muted-foreground">Search a product above to start billing.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-end">
+            <div className="text-xs text-muted-foreground">
+              Sales reduce stock automatically. Editing an invoice restores the old quantities and applies the new ones.
+            </div>
+            <div className="text-right space-y-1">
+              <div className="text-xs text-muted-foreground">
+                Taxable ₹ {inr(totals.taxable)} · Disc ₹ {inr(totals.totalDiscount)} ·{" "}
+                {interState ? <>IGST ₹ {inr(totals.igst)}</> : <>CGST ₹ {inr(totals.cgst)} · SGST ₹ {inr(totals.sgst)}</>}
+                {" "}· Round Off ₹ {inr(totals.roundOff)}
+              </div>
+              <div className="text-xl font-bold">Total: ₹ {inr(totals.total)}</div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button onClick={save} disabled={rows.length === 0 || saving}>
+              {saving ? "Saving..." : editId ? "Update Invoice" : "Save Invoice"}
+            </Button>
+            <Button variant="outline" onClick={cancelEntry} disabled={saving}>Cancel</Button>
+          </div>
         </CardContent>
       </Card>
-
-      {totals && (
-        <Card>
-          <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            <div><div className="text-muted-foreground text-xs">Subtotal</div><div className="font-semibold">₹ {inr(totals.subtotal)}</div></div>
-            <div><div className="text-muted-foreground text-xs">Discount</div><div className="font-semibold">₹ {inr(totals.totalDiscount)}</div></div>
-            <div><div className="text-muted-foreground text-xs">Taxable</div><div className="font-semibold">₹ {inr(totals.taxable)}</div></div>
-            {totals.igst > 0 ? (
-              <div><div className="text-muted-foreground text-xs">IGST</div><div className="font-semibold">₹ {inr(totals.igst)}</div></div>
-            ) : (
-              <>
-                <div><div className="text-muted-foreground text-xs">CGST</div><div className="font-semibold">₹ {inr(totals.cgst)}</div></div>
-                <div><div className="text-muted-foreground text-xs">SGST</div><div className="font-semibold">₹ {inr(totals.sgst)}</div></div>
-              </>
-            )}
-            <div><div className="text-muted-foreground text-xs">Round Off</div><div className="font-semibold">₹ {inr(totals.roundOff)}</div></div>
-            <div className="col-span-2 md:col-span-1 md:col-start-4 rounded-md bg-primary/20 p-3">
-              <div className="text-xs uppercase">Grand Total</div>
-              <div className="text-2xl font-bold">₹ {inr(totals.total)}</div>
-            </div>
-            <div className="col-span-full text-xs text-muted-foreground">{inrWords(totals.total)}</div>
-          </CardContent>
-        </Card>
-      )}
-
-      <AlertDialog open={!!stockIssue} onOpenChange={(open) => !open && setStockIssue(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Insufficient Stock</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3 text-sm text-foreground">
-                <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-3">
-                  <span className="text-muted-foreground">Product:</span><b>{stockIssue?.productName}</b>
-                  <span className="text-muted-foreground">Available:</span><b>{stockIssue?.available} Pieces</b>
-                  <span className="text-muted-foreground">Required:</span><b>{stockIssue?.required} Pieces</b>
-                </div>
-                <p className="font-semibold text-destructive">
-                  Invoice cannot be saved. Requested quantity exceeds available stock.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setStockIssue(null)}>OK</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
 
-function QuickCustomer({ onSaved }: { onSaved: (id: number) => void }) {
-  const [form, setForm] = useState<Partial<Customer>>({ name: "", mobile: "", state: "Maharashtra", stateCode: "27", status: "active" });
-  const save = async () => {
-    if (!form.name || !form.mobile) { toast.error("Name & mobile required"); return; }
-    const id = await db.customers.add({ ...(form as Customer), createdAt: Date.now() });
-    toast.success("Customer added");
-    onSaved(id as number);
-  };
-  return (
-    <DialogContent className="max-w-lg">
-      <DialogHeader><DialogTitle>Quick add customer</DialogTitle></DialogHeader>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2"><Label>Name *</Label><Input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-        <div><Label>Shop</Label><Input value={form.shopName || ""} onChange={(e) => setForm({ ...form, shopName: e.target.value })} /></div>
-        <div><Label>Mobile *</Label><Input value={form.mobile || ""} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
-        <div><Label>GSTIN</Label><Input value={form.gstin || ""} onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })} /></div>
-        <div><Label>State Code</Label><Input value={form.stateCode || ""} onChange={(e) => setForm({ ...form, stateCode: e.target.value })} /></div>
-        <div className="col-span-2"><Label>Address</Label><Textarea rows={2} value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-        <div className="col-span-2"><Button className="w-full" onClick={save}>Save Customer</Button></div>
-      </div>
-    </DialogContent>
-  );
-}
-
-export default BillingPage;
+export default Billing;
