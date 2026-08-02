@@ -37,11 +37,13 @@ function totalPiecesOf(r: Row) {
   return (r.boxes || 0) * (r.boxSize || 1) + (r.pieces || 0);
 }
 
-function computeRow(r: Row, interState: boolean) {
+function computeRow(r: Row, interState: boolean, billFactor = 1) {
   const totalPieces = totalPiecesOf(r);
   const gross = totalPieces * (r.rate || 0);
   const discountAmount = +(gross * ((r.discount || 0) / 100)).toFixed(2);
-  const taxable = Math.max(0, gross - discountAmount);
+  // Bill-level discount is applied on the rate/taxable value (before GST),
+  // distributed proportionally across the lines.
+  const taxable = Math.max(0, (gross - discountAmount) * billFactor);
   const gstAmount = +(taxable * ((r.gstPct || 0) / 100)).toFixed(2);
   const cgst = interState ? 0 : +(gstAmount / 2).toFixed(2);
   const sgst = interState ? 0 : +(gstAmount - cgst).toFixed(2);
@@ -90,9 +92,16 @@ function Purchases() {
   const supplierState = (form.supplierState || "").trim();
   const interState = !!companyState && !!supplierState && companyState !== supplierState;
 
+  const billDiscount = +(form.discount || 0);
+  const baseTaxable = rows.reduce((s, r) => {
+    const gross = totalPiecesOf(r) * (r.rate || 0);
+    return s + Math.max(0, gross - gross * ((r.discount || 0) / 100));
+  }, 0);
+  const billFactor = baseTaxable > 0 ? Math.max(0, (baseTaxable - billDiscount) / baseTaxable) : 1;
+
   const totals = rows.reduce(
     (acc, r) => {
-      const c = computeRow(r, interState);
+      const c = computeRow(r, interState, billFactor);
       acc.taxable += c.taxable;
       acc.discount += c.discountAmount;
       acc.gst += c.gstAmount;
@@ -104,8 +113,7 @@ function Purchases() {
     },
     { taxable: 0, discount: 0, gst: 0, cgst: 0, sgst: 0, igst: 0, total: 0 },
   );
-  const billDiscount = +(form.discount || 0);
-  const grandTotal = +(Math.max(0, totals.total - billDiscount)).toFixed(2);
+  const grandTotal = +totals.total.toFixed(2);
 
   const addExistingProduct = (p: Product) => {
     if (rows.some((r) => r.productId === p._id)) {
@@ -232,7 +240,7 @@ function Purchases() {
         remarks: form.remarks || undefined,
         note: form.note || undefined,
         items: resolved.map(({ row: r, productId }) => {
-          const c = computeRow(r, interState);
+          const c = computeRow(r, interState, billFactor);
           return {
             productId,
             name: r.name,
@@ -375,7 +383,7 @@ function Purchases() {
               </thead>
               <tbody>
                 {rows.map((r, i) => {
-                  const c = computeRow(r, interState);
+                  const c = computeRow(r, interState, billFactor);
                   return (
                     <tr key={i} className="border-t">
                       <td className="p-1 font-medium">
