@@ -34,7 +34,7 @@ export function InvoiceSheet({ invoice, items, customer, company }: Props) {
                 <th className="w-14">HSN</th>
                 <th className="text-left">Description</th>
                 <th className="w-14">Batch</th>
-                <th className="w-14">Rate</th>
+                <th className="w-14">Rate/Pc</th>
                 <th className="w-10">Box</th>
                 <th className="w-10">Pcs</th>
                 <th className="w-10">GST%</th>
