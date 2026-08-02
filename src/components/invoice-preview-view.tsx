@@ -7,6 +7,7 @@ import { ArrowLeft, Ban, Copy, Pencil, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api";
 import { companyApi, customersApi, invoicesApi } from "@/lib/services";
+import { fixCancelledDelete } from "@/lib/stock-fix";
 import type { Company, Customer, Invoice, InvoiceItem } from "@/lib/types";
 
 export function InvoicePreviewView() {
@@ -64,7 +65,12 @@ export function InvoicePreviewView() {
     if (!invoice) return;
     try {
       setBusy(true);
+      const wasCancelled = invoice.status === "cancelled";
       await invoicesApi.remove(invoice._id);
+      if (wasCancelled && items.length) {
+        // Stock was already restored on cancel — restore only once.
+        await fixCancelledDelete(items, invoice.number);
+      }
       toast.success("Invoice deleted — stock restored");
       navigate("/invoices");
     } catch (e) {

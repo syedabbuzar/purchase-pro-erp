@@ -13,6 +13,7 @@ import { computeInvoice, computeItem, nextInvoiceNumber, type ComputedItem } fro
 import { useApi } from "@/hooks/use-api";
 import { apiErrorMessage } from "@/lib/api";
 import { companyApi, customersApi, invoicesApi, productsApi, stockApi } from "@/lib/services";
+import { fixEditRestore } from "@/lib/stock-fix";
 import type { Product, StockRow } from "@/lib/types";
 
 interface Row {
@@ -35,6 +36,8 @@ function Billing() {
   const duplicateId = params.get("duplicate");
 
   const savingRef = useRef(false);
+  // Quantities of the invoice currently being edited — used to roll back exactly once.
+  const oldItemsRef = useRef<{ productId: string; boxes: number; pieces: number }[]>([]);
   const [saving, setSaving] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -63,6 +66,13 @@ function Billing() {
         const res = await invoicesApi.getById(id);
         if (!res?.invoice) return;
         setCustomerId(String(res.invoice.customerId));
+        oldItemsRef.current = editId
+          ? (res.items || []).map((it) => ({
+              productId: String(it.productId),
+              boxes: it.boxes || 0,
+              pieces: it.pieces || 0,
+            }))
+          : [];
         if (editId) {
           setLoadedNumber(res.invoice.number);
           setDate(new Date(res.invoice.date).toISOString().slice(0, 10));
@@ -187,6 +197,12 @@ function Billing() {
       const saved = editId
         ? await invoicesApi.update(editId, payload)
         : await invoicesApi.create(payload);
+
+      if (editId && oldItemsRef.current.length) {
+        // Rollback happens once: neutralise the backend's duplicate restore.
+        await fixEditRestore(oldItemsRef.current, number);
+        oldItemsRef.current = [];
+      }
 
       toast.success(editId ? "Invoice updated" : "Invoice saved");
       await refreshInvoices();
