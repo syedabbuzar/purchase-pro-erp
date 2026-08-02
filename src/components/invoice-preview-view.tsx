@@ -7,6 +7,7 @@ import { ArrowLeft, Ban, Copy, Pencil, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api";
 import { companyApi, customersApi, invoicesApi } from "@/lib/services";
+import { fixCancelledDelete } from "@/lib/stock-fix";
 import type { Company, Customer, Invoice, InvoiceItem } from "@/lib/types";
 
 export function InvoicePreviewView() {
