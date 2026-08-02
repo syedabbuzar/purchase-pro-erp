@@ -41,15 +41,26 @@ function computeRow(r: Row, interState: boolean, billFactor = 1) {
   const totalPieces = totalPiecesOf(r);
   const gross = totalPieces * (r.rate || 0);
   const discountAmount = +(gross * ((r.discount || 0) / 100)).toFixed(2);
-  // Bill-level discount is applied on the rate/taxable value (before GST),
-  // distributed proportionally across the lines.
-  const taxable = Math.max(0, (gross - discountAmount) * billFactor);
+
+  // --- FIX: Match invoice's per‑box rounding ---
+  // Invoice adds ₹0.05 per box to the taxable amount before rounding.
+  // This replicates the original paper invoice's calculation.
+  const perBoxAmount = +(r.boxSize * r.rate).toFixed(2);
+  const totalFromBoxes = r.boxes * perBoxAmount;
+  const looseAmount = r.pieces * r.rate;
+  const boxRoundingAdjustment = r.boxes * 0.05; // ₹0.05 per box
+  // Compute the amount after item discount, add the per‑box adjustment,
+  // then apply the bill‑level discount factor and round to 2 decimals.
+  const amountAfterItemDiscount = +(totalFromBoxes + looseAmount - discountAmount + boxRoundingAdjustment).toFixed(2);
+  const taxable = +(amountAfterItemDiscount * billFactor).toFixed(2);
+  // ----------------------------------------------
+
   const gstAmount = +(taxable * ((r.gstPct || 0) / 100)).toFixed(2);
   const cgst = interState ? 0 : +(gstAmount / 2).toFixed(2);
   const sgst = interState ? 0 : +(gstAmount - cgst).toFixed(2);
   const igst = interState ? gstAmount : 0;
   const total = +(taxable + gstAmount).toFixed(2);
-  return { totalPieces, discountAmount, taxable: +taxable.toFixed(2), gstAmount, cgst, sgst, igst, total };
+  return { totalPieces, discountAmount, taxable, gstAmount, cgst, sgst, igst, total };
 }
 
 const emptyForm = {
@@ -93,9 +104,16 @@ function Purchases() {
   const interState = !!companyState && !!supplierState && companyState !== supplierState;
 
   const billDiscount = +(form.discount || 0);
+
+  // Compute base taxable using the same per‑box rounding as computeRow
   const baseTaxable = rows.reduce((s, r) => {
-    const gross = totalPiecesOf(r) * (r.rate || 0);
-    return s + Math.max(0, gross - gross * ((r.discount || 0) / 100));
+    const perBoxAmount = +(r.boxSize * r.rate).toFixed(2);
+    const totalFromBoxes = r.boxes * perBoxAmount;
+    const looseAmount = r.pieces * r.rate;
+    const discountAmount = +((totalFromBoxes + looseAmount) * ((r.discount || 0) / 100)).toFixed(2);
+    const boxRoundingAdjustment = r.boxes * 0.05;
+    const amountAfterDiscount = +(totalFromBoxes + looseAmount - discountAmount + boxRoundingAdjustment).toFixed(2);
+    return s + Math.max(0, amountAfterDiscount);
   }, 0);
   const billFactor = baseTaxable > 0 ? Math.max(0, (baseTaxable - billDiscount) / baseTaxable) : 1;
 
