@@ -64,7 +64,12 @@ export function InvoicePreviewView() {
     if (!invoice) return;
     try {
       setBusy(true);
+      const wasCancelled = invoice.status === "cancelled";
       await invoicesApi.remove(invoice._id);
+      if (wasCancelled && items.length) {
+        // Stock was already restored on cancel — restore only once.
+        await fixCancelledDelete(items, invoice.number);
+      }
       toast.success("Invoice deleted — stock restored");
       navigate("/invoices");
     } catch (e) {
