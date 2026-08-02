@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loading, ErrorState } from "@/components/data-state";
 import { useApi } from "@/hooks/use-api";
 import { invoicesApi } from "@/lib/services";
+import { fixCancelledDelete } from "@/lib/stock-fix";
 import { apiErrorMessage } from "@/lib/api";
 import { inr } from "@/lib/num";
 import { format } from "date-fns";
@@ -16,7 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type Confirm = { id: string; number: string; action: "cancel" | "delete" } | null;
+type Confirm = { id: string; number: string; action: "cancel" | "delete"; status?: string } | null;
 
 function Invoices() {
   const navigate = useNavigate();
@@ -38,7 +39,14 @@ function Invoices() {
         await invoicesApi.cancel(confirm.id);
         toast.success(`Invoice ${confirm.number} cancelled — stock restored`);
       } else {
+        // Read the items before deletion so a cancelled invoice (already restored)
+        // is not restored a second time.
+        const wasCancelled = confirm.status === "cancelled";
+        const detail = wasCancelled ? await invoicesApi.getById(confirm.id) : null;
         await invoicesApi.remove(confirm.id);
+        if (wasCancelled && detail?.items?.length) {
+          await fixCancelledDelete(detail.items, confirm.number);
+        }
         toast.success(`Invoice ${confirm.number} deleted`);
       }
       setConfirm(null);
@@ -103,10 +111,10 @@ function Invoices() {
                       <Button size="icon" variant="ghost" title="Edit" disabled={i.status !== "active"} onClick={() => navigate(`/billing?edit=${i._id}`)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" title="Cancel" disabled={i.status !== "active"} onClick={() => setConfirm({ id: i._id, number: i.number, action: "cancel" })}>
+                      <Button size="icon" variant="ghost" title="Cancel" disabled={i.status !== "active"} onClick={() => setConfirm({ id: i._id, number: i.number, action: "cancel", status: i.status })}>
                         <Ban className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" title="Delete" onClick={() => setConfirm({ id: i._id, number: i.number, action: "delete" })}>
+                      <Button size="icon" variant="ghost" title="Delete" onClick={() => setConfirm({ id: i._id, number: i.number, action: "delete", status: i.status })}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
