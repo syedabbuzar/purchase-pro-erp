@@ -81,6 +81,7 @@ function App() {
           <Route path="/billing" element={<Billing />} />
           <Route path="/billing/:id" element={<BillingLegacyRedirect />} />
           <Route path="/invoices" element={<Invoices />} />
+          <Route path="/invoices/:id" element={<InvoicePreview />} />
           <Route path="/invoice-preview/:id" element={<InvoicePreview />} />
           <Route path="/products" element={<Products />} />
           <Route path="/customers" element={<Customers />} />
