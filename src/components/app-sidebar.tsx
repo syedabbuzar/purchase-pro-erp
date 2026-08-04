@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Receipt, FileText, Package, Users, Boxes, TruckIcon,
   BarChart3, Percent, ClipboardList, Settings, DatabaseBackup, UserCog, LogOut,
 } from "lucide-react";
-import starLogo from "@/assets/star-logo.png.asset.json";
+const starLogo = "./star-logo.png";
+const mellowMoonLogo = "./mellowmoon.png";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter,
@@ -73,16 +74,10 @@ export function AppSidebar() {
       <SidebarHeader className="p-0">
         <div className={collapsed ? "flex items-center justify-center py-3" : "sidebar-brand flex items-center gap-2"}>
           <img
-            src={starLogo.url}
-            alt="STAR ENTERPRISES logo"
+            src={starLogo}
+            alt="STAR ENTERPRISES"
             className={collapsed ? "h-7 w-7 rounded object-contain" : "h-8 w-8 rounded object-contain"}
           />
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="brand-title text-sm truncate">STAR ENTERPRISES</div>
-              <div className="brand-sub truncate">GST Billing ERP</div>
-            </div>
-          )}
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -121,6 +116,11 @@ export function AppSidebar() {
         <Button size="sm" onClick={logout} className="mx-2 mb-2 bg-primary text-primary-foreground hover:bg-primary/90">
           <LogOut className="h-4 w-4 mr-1" />{collapsed ? "" : "Sign out"}
         </Button>
+        <div className="px-2 pb-2 text-[10px] text-muted-foreground text-center">
+          <div className="mb-1 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">Powered by</div>
+          <img src={mellowMoonLogo} alt="MellowMoon SoftTech Pvt. Ltd." className="mx-auto mb-1 h-6 w-auto object-contain" />
+          <div className="font-semibold text-foreground/80">MellowMoon SoftTech Pvt. Ltd.</div>
+        </div>
       </SidebarFooter>
     </Sidebar>
   );

@@ -43,14 +43,10 @@ function computeRow(r: Row, interState: boolean, billFactor = 1) {
   const discountAmount = +(gross * ((r.discount || 0) / 100)).toFixed(2);
 
   // --- FIX: Match invoice's per‑box rounding ---
-  // Invoice adds ₹0.05 per box to the taxable amount before rounding.
-  // This replicates the original paper invoice's calculation.
   const perBoxAmount = +(r.boxSize * r.rate).toFixed(2);
   const totalFromBoxes = r.boxes * perBoxAmount;
   const looseAmount = r.pieces * r.rate;
-  const boxRoundingAdjustment = r.boxes * 0.05; // ₹0.05 per box
-  // Compute the amount after item discount, add the per‑box adjustment,
-  // then apply the bill‑level discount factor and round to 2 decimals.
+  const boxRoundingAdjustment = r.boxes * 0.05;
   const amountAfterItemDiscount = +(totalFromBoxes + looseAmount - discountAmount + boxRoundingAdjustment).toFixed(2);
   const taxable = +(amountAfterItemDiscount * billFactor).toFixed(2);
   // ----------------------------------------------
@@ -206,7 +202,7 @@ function Purchases() {
               name: r.name.trim(),
               hsn: r.hsn.trim(),
               description: "",
-              mrp: 0, // user sets selling price later in Products
+              mrp: 0,
               rate: 0,
               gstPct: r.gstPct || 0,
               unit: "PCS",
@@ -376,27 +372,27 @@ function Purchases() {
             <div className="sm:col-span-2 md:col-span-3"><Label>Narration</Label><Textarea rows={2} value={form.narration} onChange={(e) => setForm({ ...form, narration: e.target.value })} /></div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[1320px]">
+            <table className="w-full table-fixed text-xs min-w-[1320px]">
               <thead className="bg-muted/50 text-left">
                 <tr>
-                  <th className="p-2 min-w-[220px]">Product</th>
-                  <th className="min-w-[110px]">HSN</th>
-                  <th className="min-w-[110px]">Batch</th>
-                  <th className="min-w-[140px]">Expiry</th>
-                  <th className="text-right">GST%</th>
+                  <th className="p-2 w-[220px] min-w-[220px]">Product</th>
+                  <th className="p-2 w-[110px] min-w-[110px]">HSN</th>
+                  <th className="p-2 w-[110px] min-w-[110px]">Batch</th>
+                  <th className="p-2 w-[140px] min-w-[140px]">Expiry</th>
+                  <th className="p-2 w-[70px] min-w-[70px] text-right">GST%</th>
                   {interState
-                    ? <th className="text-right">IGST%</th>
-                    : (<><th className="text-right">CGST%</th><th className="text-right">SGST%</th></>)}
-                  <th className="text-right">Pcs/Box</th>
-                  <th className="text-right">Boxes</th>
-                  <th className="text-right">Loose Pcs</th>
-                  <th className="text-right">Total Pcs</th>
-                  <th className="text-right min-w-[110px]">Rate/Pc</th>
-                  <th className="text-right min-w-[100px]">Disc%</th>
-                  <th className="text-right min-w-[110px]">Taxable</th>
-                  <th className="text-right min-w-[100px]">GST</th>
-                  <th className="text-right min-w-[120px]">Total</th>
-                  <th></th>
+                    ? <th className="p-2 w-[70px] min-w-[70px] text-right">IGST%</th>
+                    : (<><th className="p-2 w-[70px] min-w-[70px] text-right">CGST%</th><th className="p-2 w-[70px] min-w-[70px] text-right">SGST%</th></>)}
+                  <th className="p-2 w-[80px] min-w-[80px] text-right">Pcs/Box</th>
+                  <th className="p-2 w-[80px] min-w-[80px] text-right">Boxes</th>
+                  <th className="p-2 w-[80px] min-w-[80px] text-right">Loose Pcs</th>
+                  <th className="p-2 w-[100px] min-w-[100px] text-right">Total Pcs</th>
+                  <th className="p-2 w-[110px] min-w-[110px] text-right">Rate/Pc</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">Disc%</th>
+                  <th className="p-2 w-[110px] min-w-[110px] text-right">Taxable</th>
+                  <th className="p-2 w-[100px] min-w-[100px] text-right">GST</th>
+                  <th className="p-2 w-[120px] min-w-[120px] text-right">Total</th>
+                  <th className="p-2 w-[40px] min-w-[40px]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -404,40 +400,56 @@ function Purchases() {
                   const c = computeRow(r, interState, billFactor);
                   return (
                     <tr key={i} className="border-t">
-                      <td className="p-1 font-medium">
+                      <td className="p-1 w-[220px] min-w-[220px] font-medium">
                         {r.name}
                         {!r.productId && (
                           <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] text-primary">NEW</span>
                         )}
                       </td>
-                      <td><Input className="h-7 w-28" value={r.hsn} placeholder="HSN" onChange={(e) => updateRow(i, { hsn: e.target.value })} /></td>
-                      <td><Input className="h-7 w-28" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} /></td>
-                      <td><Input className="h-7 w-36" type="date" value={r.expiry || ""} onChange={(e) => updateRow(i, { expiry: e.target.value })} /></td>
-                      <td>
+                      <td className="p-1 w-[110px] min-w-[110px]">
+                        <Input className="h-7 w-full" value={r.hsn} placeholder="HSN" onChange={(e) => updateRow(i, { hsn: e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[110px] min-w-[110px]">
+                        <Input className="h-7 w-full" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[140px] min-w-[140px]">
+                        <Input className="h-7 w-full" type="date" value={r.expiry || ""} onChange={(e) => updateRow(i, { expiry: e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[70px] min-w-[70px]">
                         <Select value={String(r.gstPct)} onValueChange={(v) => updateRow(i, { gstPct: +v })}>
-                          <SelectTrigger className="h-7 w-16"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>{[0, 5, 12, 18, 28].map((g) => <SelectItem key={g} value={String(g)}>{g}%</SelectItem>)}</SelectContent>
                         </Select>
                       </td>
                       {interState
-                        ? <td className="text-right pr-2 text-muted-foreground">{r.gstPct}%</td>
+                        ? <td className="p-1 w-[70px] min-w-[70px] text-right pr-2 text-muted-foreground">{r.gstPct}%</td>
                         : (<>
-                            <td className="text-right pr-2 text-muted-foreground">{r.gstPct / 2}%</td>
-                            <td className="text-right pr-2 text-muted-foreground">{r.gstPct / 2}%</td>
+                            <td className="p-1 w-[70px] min-w-[70px] text-right pr-2 text-muted-foreground">{r.gstPct / 2}%</td>
+                            <td className="p-1 w-[70px] min-w-[70px] text-right pr-2 text-muted-foreground">{r.gstPct / 2}%</td>
                           </>)}
-                      <td><Input className="h-7 w-20" type="number" value={r.boxSize} onChange={(e) => updateRow(i, { boxSize: Math.max(1, +e.target.value || 1) })} /></td>
-                      <td><Input className="h-7 w-20" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
-                      <td><Input className="h-7 w-20" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
-                      <td className="text-right pr-2 font-medium">
+                      <td className="p-1 w-[80px] min-w-[80px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.boxSize} onChange={(e) => updateRow(i, { boxSize: Math.max(1, +e.target.value || 1) })} />
+                      </td>
+                      <td className="p-1 w-[80px] min-w-[80px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[80px] min-w-[80px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[100px] min-w-[100px] text-right pr-2 font-medium">
                         <div>{c.totalPieces}</div>
                         <div className="text-[10px] text-muted-foreground">{formatQty(c.totalPieces, r.boxSize || 1)}</div>
                       </td>
-                      <td><Input className="h-7 w-24" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
-                      <td><Input className="h-7 w-20" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} /></td>
-                      <td className="text-right pr-2">{inr(c.taxable)}</td>
-                      <td className="text-right pr-2">{inr(c.gstAmount)}</td>
-                      <td className="text-right pr-2 font-semibold">{inr(c.total)}</td>
-                      <td>
+                      <td className="p-1 w-[110px] min-w-[110px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[90px] min-w-[90px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[110px] min-w-[110px] text-right pr-2">{inr(c.taxable)}</td>
+                      <td className="p-1 w-[100px] min-w-[100px] text-right pr-2">{inr(c.gstAmount)}</td>
+                      <td className="p-1 w-[120px] min-w-[120px] text-right pr-2 font-semibold">{inr(c.total)}</td>
+                      <td className="p-1 w-[40px] min-w-[40px]">
                         <Button size="icon" variant="ghost" onClick={() => setRows((rs) => rs.filter((_, k) => k !== i))}>
                           <Trash2 className="h-4 w-4" />
                         </Button>

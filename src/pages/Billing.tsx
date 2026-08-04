@@ -36,7 +36,6 @@ function Billing() {
   const duplicateId = params.get("duplicate");
 
   const savingRef = useRef(false);
-  // Quantities of the invoice currently being edited — used to roll back exactly once.
   const oldItemsRef = useRef<{ productId: string; boxes: number; pieces: number }[]>([]);
   const [saving, setSaving] = useState(false);
   const [customerId, setCustomerId] = useState("");
@@ -57,7 +56,6 @@ function Billing() {
     return m;
   }, [stock]);
 
-  // Load an existing invoice for edit / duplicate
   useEffect(() => {
     const id = editId || duplicateId;
     if (!id) return;
@@ -193,13 +191,11 @@ function Billing() {
         }),
       };
 
-      // Backend handles stock ledger on create / update / cancel.
       const saved = editId
         ? await invoicesApi.update(editId, payload)
         : await invoicesApi.create(payload);
 
       if (editId && oldItemsRef.current.length) {
-        // Rollback happens once: neutralise the backend's duplicate restore.
         await fixEditRestore(oldItemsRef.current, number);
         oldItemsRef.current = [];
       }
@@ -218,7 +214,6 @@ function Billing() {
   };
 
   const cancelEntry = () => {
-    // Discards everything — nothing is saved to invoice, stock or ledger.
     resetForm();
     toast.info("Entry cancelled — nothing was saved");
     navigate("/invoices");
@@ -288,21 +283,21 @@ function Billing() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[1150px]">
+            <table className="w-full table-fixed text-xs min-w-[1150px]">
               <thead className="bg-muted/50 text-left">
                 <tr>
-                  <th className="p-2 min-w-[240px]">Description</th>
-                  <th className="min-w-[110px]">HSN</th>
-                  <th className="min-w-[110px]">Batch</th>
-                  <th className="text-right min-w-[110px]">Rate/Pc</th>
-                  <th className="text-right min-w-[90px]">Pcs/Box</th>
-                  <th className="text-right min-w-[90px]">Box</th>
-                  <th className="text-right min-w-[90px]">Pcs</th>
-                  <th className="text-right min-w-[90px]">Disc%</th>
-                  <th className="text-right min-w-[90px]">GST%</th>
-                  <th className="text-right min-w-[110px]">Taxable</th>
-                  <th className="text-right min-w-[110px]">Net Amt</th>
-                  <th></th>
+                  <th className="p-2 w-[240px] min-w-[240px]">Description</th>
+                  <th className="p-2 w-[110px] min-w-[110px]">HSN</th>
+                  <th className="p-2 w-[110px] min-w-[110px]">Batch</th>
+                  <th className="p-2 w-[110px] min-w-[110px] text-right">Rate/Pc</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">Pcs/Box</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">Box</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">Pcs</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">Disc%</th>
+                  <th className="p-2 w-[90px] min-w-[90px] text-right">GST%</th>
+                  <th className="p-2 w-[110px] min-w-[110px] text-right">Taxable</th>
+                  <th className="p-2 w-[110px] min-w-[110px] text-right">Net Amt</th>
+                  <th className="p-2 w-[40px] min-w-[40px]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -311,23 +306,33 @@ function Billing() {
                   const rem = stockByProduct.get(r.productId)?.remainingPieces ?? 0;
                   return (
                     <tr key={r.productId} className="border-t">
-                      <td className="p-1">
-                        <div className="font-medium">{r.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
+                      <td className="p-1 w-[240px] min-w-[240px]">
+                        <div className="font-medium truncate">{r.name}</div>
+                        <div className="text-[10px] text-muted-foreground truncate">
                           Stock: {formatQty(rem, r.boxSize || 1)} · Qty: {c.totalPieces} pcs
                         </div>
                       </td>
-                      <td>{r.hsn || "—"}</td>
-                      <td><Input className="h-7 w-28" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} /></td>
-                      <td><Input className="h-7 w-24" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} /></td>
-                      <td className="text-right pr-2">{r.boxSize}</td>
-                      <td><Input className="h-7 w-20" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} /></td>
-                      <td><Input className="h-7 w-20" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} /></td>
-                      <td><Input className="h-7 w-20" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} /></td>
-                      <td className="text-right pr-2">{r.gstPct}%</td>
-                      <td className="text-right pr-2">{inr(c.taxable)}</td>
-                      <td className="text-right pr-2 font-semibold">{inr(c.netAmount)}</td>
-                      <td>
+                      <td className="p-1 w-[110px] min-w-[110px]">{r.hsn || "—"}</td>
+                      <td className="p-1 w-[110px] min-w-[110px]">
+                        <Input className="h-7 w-full" value={r.batch || ""} onChange={(e) => updateRow(i, { batch: e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[110px] min-w-[110px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.rate} onChange={(e) => updateRow(i, { rate: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[90px] min-w-[90px] text-right pr-2">{r.boxSize}</td>
+                      <td className="p-1 w-[90px] min-w-[90px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.boxes} onChange={(e) => updateRow(i, { boxes: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[90px] min-w-[90px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.pieces} onChange={(e) => updateRow(i, { pieces: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[90px] min-w-[90px]">
+                        <Input className="h-7 w-full text-right" type="number" value={r.discount} onChange={(e) => updateRow(i, { discount: +e.target.value })} />
+                      </td>
+                      <td className="p-1 w-[90px] min-w-[90px] text-right pr-2">{r.gstPct}%</td>
+                      <td className="p-1 w-[110px] min-w-[110px] text-right pr-2">{inr(c.taxable)}</td>
+                      <td className="p-1 w-[110px] min-w-[110px] text-right pr-2 font-semibold">{inr(c.netAmount)}</td>
+                      <td className="p-1 w-[40px] min-w-[40px]">
                         <Button size="icon" variant="ghost" onClick={() => setRows((rs) => rs.filter((_, k) => k !== i))}>
                           <Trash2 className="h-4 w-4" />
                         </Button>

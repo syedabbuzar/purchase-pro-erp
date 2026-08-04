@@ -1,31 +1,54 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, Navigate, Outlet, useNavigate, Link } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/lib/auth";
+const starLogo = "./star-logo.png";
 
-import AuthPage from "@/pages/Auth";
-import Dashboard from "@/pages/Dashboard";
-import Billing from "@/pages/Billing";
-import BillingLegacyRedirect from "@/pages/BillingLegacyRedirect";
-import Invoices from "@/pages/Invoices";
-import InvoicePreview from "@/pages/InvoicePreview";
-import Products from "@/pages/Products";
-import Customers from "@/pages/Customers";
-import CustomerProfile from "@/pages/CustomerProfile";
-import Stock from "@/pages/Stock";
-import Purchases from "@/pages/Purchases";
-import PurchaseView from "@/pages/PurchaseView";
-import Daily from "@/pages/reports/Daily";
-import Sales from "@/pages/reports/Sales";
-import Gst from "@/pages/reports/Gst";
-import Gstr1B2B from "@/pages/reports/Gstr1B2B";
-import Gstr3b from "@/pages/reports/Gstr3b";
-import GstB2BExport from "@/pages/reports/GstB2BExport";
-import Company from "@/pages/settings/Company";
-import Users from "@/pages/settings/Users";
-import Backup from "@/pages/settings/Backup";
+const AuthPage = lazy(() => import("@/pages/Auth"));
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Billing = lazy(() => import("@/pages/Billing"));
+const BillingLegacyRedirect = lazy(() => import("@/pages/BillingLegacyRedirect"));
+const Invoices = lazy(() => import("@/pages/Invoices"));
+const InvoicePreview = lazy(() => import("@/pages/InvoicePreview"));
+const Products = lazy(() => import("@/pages/Products"));
+const Customers = lazy(() => import("@/pages/Customers"));
+const CustomerProfile = lazy(() => import("@/pages/CustomerProfile"));
+const Stock = lazy(() => import("@/pages/Stock"));
+const Purchases = lazy(() => import("@/pages/Purchases"));
+const PurchaseView = lazy(() => import("@/pages/PurchaseView"));
+const Daily = lazy(() => import("@/pages/reports/Daily"));
+const Sales = lazy(() => import("@/pages/reports/Sales"));
+const Gst = lazy(() => import("@/pages/reports/Gst"));
+const Gstr1B2B = lazy(() => import("@/pages/reports/Gstr1B2B"));
+const Gstr3b = lazy(() => import("@/pages/reports/Gstr3b"));
+const GstB2BExport = lazy(() => import("@/pages/reports/GstB2BExport"));
+const Company = lazy(() => import("@/pages/settings/Company"));
+const Users = lazy(() => import("@/pages/settings/Users"));
+const Backup = lazy(() => import("@/pages/settings/Backup"));
+
+function StartupLoader() {
+  const [showLoader, setShowLoader] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowLoader(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!showLoader) return null;
+
+  return (
+    <div className="app-loader-screen">
+      <div className="app-loader-card">
+        <img src={starLogo} alt="STAR ENTERPRISES" className="app-loader-logo" />
+        <div className="app-loader-progress">
+          <div className="app-loader-progress-bar" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NotFound() {
   return (
@@ -56,7 +79,7 @@ function AuthLayout() {
         <div className="flex-1 flex flex-col min-w-0">
           <header className="h-12 border-b bg-card/50 backdrop-blur flex items-center px-2 gap-2 no-print">
             <SidebarTrigger />
-            <div className="text-sm font-semibold">STAR ENTERPRISES</div>
+            <img src={starLogo} alt="STAR ENTERPRISES" className="h-8 w-auto object-contain" />
             <div className="ml-auto text-xs text-muted-foreground">
               {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
             </div>
@@ -73,34 +96,37 @@ function AuthLayout() {
 function App() {
   return (
     <>
-      <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/auth" element={<AuthPage />} />
-        <Route element={<AuthLayout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="/billing/:id" element={<BillingLegacyRedirect />} />
-          <Route path="/invoices" element={<Invoices />} />
-          <Route path="/invoices/:id" element={<InvoicePreview />} />
-          <Route path="/invoice-preview/:id" element={<InvoicePreview />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/customers/:id" element={<CustomerProfile />} />
-          <Route path="/stock" element={<Stock />} />
-          <Route path="/purchases" element={<Purchases />} />
-          <Route path="/purchases/:id" element={<PurchaseView />} />
-          <Route path="/reports/daily" element={<Daily />} />
-          <Route path="/reports/sales" element={<Sales />} />
-          <Route path="/reports/gst" element={<Gst />} />
-          <Route path="/reports/gstr1-b2b" element={<Gstr1B2B />} />
-          <Route path="/reports/gstr3b" element={<Gstr3b />} />
-          <Route path="/reports/gst-b2b-export" element={<GstB2BExport />} />
-          <Route path="/settings/company" element={<Company />} />
-          <Route path="/settings/users" element={<Users />} />
-          <Route path="/settings/backup" element={<Backup />} />
-        </Route>
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <StartupLoader />
+      <Suspense fallback={<div className="hidden" />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route element={<AuthLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/billing" element={<Billing />} />
+            <Route path="/billing/:id" element={<BillingLegacyRedirect />} />
+            <Route path="/invoices" element={<Invoices />} />
+            <Route path="/invoices/:id" element={<InvoicePreview />} />
+            <Route path="/invoice-preview/:id" element={<InvoicePreview />} />
+            <Route path="/products" element={<Products />} />
+            <Route path="/customers" element={<Customers />} />
+            <Route path="/customers/:id" element={<CustomerProfile />} />
+            <Route path="/stock" element={<Stock />} />
+            <Route path="/purchases" element={<Purchases />} />
+            <Route path="/purchases/:id" element={<PurchaseView />} />
+            <Route path="/reports/daily" element={<Daily />} />
+            <Route path="/reports/sales" element={<Sales />} />
+            <Route path="/reports/gst" element={<Gst />} />
+            <Route path="/reports/gstr1-b2b" element={<Gstr1B2B />} />
+            <Route path="/reports/gstr3b" element={<Gstr3b />} />
+            <Route path="/reports/gst-b2b-export" element={<GstB2BExport />} />
+            <Route path="/settings/company" element={<Company />} />
+            <Route path="/settings/users" element={<Users />} />
+            <Route path="/settings/backup" element={<Backup />} />
+          </Route>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
       <Toaster richColors position="top-right" />
     </>
   );
