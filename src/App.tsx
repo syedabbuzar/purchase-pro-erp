@@ -21,9 +21,7 @@ const PurchaseView = lazy(() => import("@/pages/PurchaseView"));
 const Daily = lazy(() => import("@/pages/reports/Daily"));
 const Sales = lazy(() => import("@/pages/reports/Sales"));
 const Gst = lazy(() => import("@/pages/reports/Gst"));
-const Gstr1B2B = lazy(() => import("@/pages/reports/Gstr1B2B"));
-const Gstr3b = lazy(() => import("@/pages/reports/Gstr3b"));
-const GstB2BExport = lazy(() => import("@/pages/reports/GstB2BExport"));
+const Gstr1 = lazy(() => import("@/pages/reports/Gstr1"));
 const Company = lazy(() => import("@/pages/settings/Company"));
 const Users = lazy(() => import("@/pages/settings/Users"));
 const Backup = lazy(() => import("@/pages/settings/Backup"));
@@ -117,9 +115,7 @@ function App() {
             <Route path="/reports/daily" element={<Daily />} />
             <Route path="/reports/sales" element={<Sales />} />
             <Route path="/reports/gst" element={<Gst />} />
-            <Route path="/reports/gstr1-b2b" element={<Gstr1B2B />} />
-            <Route path="/reports/gstr3b" element={<Gstr3b />} />
-            <Route path="/reports/gst-b2b-export" element={<GstB2BExport />} />
+            <Route path="/reports/gstr1" element={<Gstr1 />} />
             <Route path="/settings/company" element={<Company />} />
             <Route path="/settings/users" element={<Users />} />
             <Route path="/settings/backup" element={<Backup />} />

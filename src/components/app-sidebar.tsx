@@ -47,9 +47,7 @@ const groups = [
   {
     label: "GST Reports",
     items: [
-      { title: "GSTR-1 B2B", url: "/reports/gstr1-b2b", icon: FileText },
-      { title: "GSTR-3B", url: "/reports/gstr3b", icon: ClipboardList },
-      { title: "GST B2B Export", url: "/reports/gst-b2b-export", icon: BarChart3 },
+      { title: "GSTR-1 Excel", url: "/reports/gstr1", icon: FileText },
     ],
   },
   {
