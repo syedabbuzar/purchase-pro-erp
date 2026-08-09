@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { invoicesApi, customersApi, companyApi, productsApi } from "./services";
+import { invoicesApi, customersApi, companyApi, productsApi, reportsApi } from "./services";
 import type { Company, Customer, Invoice, InvoiceItem, Product } from "./types";
 
 /* ------------------------------------------------------------------
@@ -110,8 +110,35 @@ export interface Gstr1Result {
   counts: Record<string, number>;
 }
 
-interface Line extends InvoiceItem {
-  interState: boolean;
+/* ------------------------------------------------------------------
+ * DATA SOURCE (single source of truth)
+ * ------------------------------------------------------------------
+ * Backend models used (no new storage is created):
+ *   Invoice      GET /invoice/all , GET /sales-report?from&to  -> header:
+ *                _id, number, date, customerId, taxable, cgst, sgst, igst,
+ *                total, status(active|cancelled|deleted)
+ *   InvoiceItem  GET /invoice/view/:id -> data.items (SAVED SNAPSHOT):
+ *                name, hsn, gstPct, boxes, pieces, boxSize, rate,
+ *                taxable, gstAmount, amount
+ *   Customer     GET /customers -> gstin, name/shopName, state, stateCode
+ *   Company      GET /company   -> gstin, state, stateCode
+ *
+ * Every money/tax/HSN value written to the workbook comes from the SAVED
+ * invoice header or SAVED line items - never re-derived from product master.
+ * Product master is only consulted as a last-resort display fallback for a
+ * missing HSN, and that always raises a validation warning.
+ *
+ * The backend has no credit/debit note, export, or advance-receipt models,
+ * so cdnr / cdnur / exp / at / atadj stay structurally present but empty -
+ * fabricating those rows is never acceptable.
+ * ------------------------------------------------------------------ */
+
+/** B2CL rule: inter-state supply to an unregistered person, invoice value > 2.5 lakh. */
+const B2CL_LIMIT = 250000;
+
+interface Detail {
+  invoice: Invoice;
+  items: InvoiceItem[];
 }
 
 /** Fetches ERP data for the period and builds the workbook. */
@@ -119,14 +146,24 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   const from = new Date(opts.from + "T00:00:00");
   const to = new Date(opts.to + "T23:59:59");
 
-  const [allInvoices, customers, company, products] = await Promise.all([
-    invoicesApi.list(),
+  // Period filtering is pushed to the backend (/sales-report?from&to); the full
+  // list is merged in so cancelled/other-status documents of the period are not lost.
+  const [periodReport, allInvoices, customers, company, products] = await Promise.all([
+    reportsApi.sales(opts.from, opts.to).catch(() => null),
+    invoicesApi.list().catch(() => [] as Invoice[]),
     customersApi.list(),
     companyApi.get().catch(() => null),
     productsApi.list().catch(() => [] as Product[]),
   ]);
 
-  const inPeriod = (allInvoices || []).filter((i) => {
+  // Deduplicate strictly by transaction id (never by invoice number).
+  const byId = new Map<string, Invoice>();
+  for (const inv of [...(periodReport?.invoices || []), ...(allInvoices || [])]) {
+    if (inv?._id && !byId.has(String(inv._id))) byId.set(String(inv._id), inv);
+  }
+
+  const inPeriod = [...byId.values()].filter((i) => {
+    if (i.status === "deleted") return false;
     const d = i.date ? new Date(i.date) : null;
     return !!d && d >= from && d <= to;
   });
@@ -141,63 +178,102 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   const b2cl: Row[] = [];
   const b2csMap = new Map<string, { type: string; pos: string; rate: number; taxable: number; cess: number }>();
   const hsnMap = new Map<string, { hsn: string; desc: string; uqc: string; qty: number; value: number; rate: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>();
-  const exemp = { nil: 0, exempted: 0, nonGst: 0 };
+  const exemp = {
+    interReg: 0, intraReg: 0, interUnreg: 0, intraUnreg: 0,
+  };
 
   const activeInvoices: Invoice[] = [];
+  const seen = new Set<string>();
 
   for (const { invoice, items } of details) {
-    if (invoice.status === "cancelled") continue;
+    if (invoice.status === "cancelled" || invoice.status === "deleted") continue;
+    if (seen.has(String(invoice._id))) continue;
+    seen.add(String(invoice._id));
     activeInvoices.push(invoice);
+
     const cust = custById.get(String(invoice.customerId));
+    const gstin = (cust?.gstin || "").trim();
+
+    // Inter/intra is taken from the SAVED tax split on the invoice; the customer
+    // master (which may have been edited later) is only a fallback.
+    const savedIgst = invoice.igst || 0;
+    const savedCgst = (invoice.cgst || 0) + (invoice.sgst || 0);
     const interState =
-      !!cust?.stateCode && !!company?.stateCode && cust.stateCode !== company.stateCode;
-    const place = pos(cust?.state || company?.state, cust?.stateCode || company?.stateCode);
+      savedIgst > 0 ? true
+        : savedCgst > 0 ? false
+          : !!cust?.stateCode && !!company?.stateCode && cust.stateCode !== company.stateCode;
+
+    const place = interState
+      ? pos(cust?.state, cust?.stateCode)
+      : pos(cust?.state || company?.state, cust?.stateCode || company?.stateCode);
     if (!place) warnings.push(`Invoice ${invoice.number}: missing place of supply (customer state).`);
     if (!invoice.date) warnings.push(`Invoice ${invoice.number}: missing invoice date.`);
+    if (!items.length) warnings.push(`Invoice ${invoice.number}: no saved line items found - excluded from HSN summary.`);
 
-    const lines: Line[] = (items || []).map((it) => ({ ...it, interState }));
     const invoiceValue = r2(invoice.total || 0);
 
-    // rate-wise split of the invoice
-    const byRate = new Map<number, { taxable: number }>();
-    for (const it of lines) {
-      const cur = byRate.get(it.gstPct || 0) || { taxable: 0 };
-      cur.taxable += it.taxable || 0;
-      byRate.set(it.gstPct || 0, cur);
+    /* ---- reconciliation: saved header vs saved line items ---- */
+    const lineTaxable = items.reduce((s, it) => s + (it.taxable || 0), 0);
+    const lineTax = items.reduce((s, it) => s + (it.gstAmount || 0), 0);
+    const headerTax = savedIgst + savedCgst;
+    if (items.length && Math.abs(r2(lineTaxable) - r2(invoice.taxable || 0)) > 1)
+      warnings.push(`Invoice ${invoice.number}: saved taxable value (${r2(invoice.taxable || 0)}) does not match sum of line items (${r2(lineTaxable)}).`);
+    if (items.length && Math.abs(r2(lineTax) - r2(headerTax)) > 1)
+      warnings.push(`Invoice ${invoice.number}: saved tax (${r2(headerTax)}) does not match sum of line item tax (${r2(lineTax)}).`);
+    if (Math.abs(r2((invoice.taxable || 0) + headerTax) - invoiceValue) > 1)
+      warnings.push(`Invoice ${invoice.number}: invoice total (${invoiceValue}) does not equal taxable + tax (${r2((invoice.taxable || 0) + headerTax)}).`);
 
-      // HSN summary
-      const hsn = it.hsn || prodById.get(String(it.productId))?.hsn || "";
-      if (!hsn) warnings.push(`Invoice ${invoice.number}: item "${it.name}" has no HSN.`);
-      const key = `${hsn}|${it.gstPct || 0}`;
-      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc: "PCS-PIECES", qty: 0, value: 0, rate: it.gstPct || 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+    // Rate-wise split built from the SAVED line items only.
+    const byRate = new Map<number, { taxable: number }>();
+    for (const it of items) {
+      const rate = it.gstPct || 0;
+      const taxable = it.taxable || 0;
+      const cur = byRate.get(rate) || { taxable: 0 };
+      cur.taxable += taxable;
+      byRate.set(rate, cur);
+
+      /* ---- HSN summary from saved line items ---- */
+      let hsn = (it.hsn || "").trim();
+      if (!hsn) {
+        hsn = prodById.get(String(it.productId))?.hsn || "";
+        warnings.push(`Invoice ${invoice.number}: item "${it.name}" has no HSN saved on the invoice${hsn ? " (product master value used)" : ""}.`);
+      }
+      const key = `${hsn}|${rate}`;
+      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc: "PCS-PIECES", qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
       const qty = (it.boxes || 0) * (it.boxSize || 1) + (it.pieces || 0);
-      const tax = (it.taxable || 0) * ((it.gstPct || 0) / 100);
+      const tax = it.gstAmount ?? taxable * (rate / 100); // saved tax amount preferred
       h.qty += qty;
-      h.taxable += it.taxable || 0;
-      h.value += (it.taxable || 0) + tax;
+      h.taxable += taxable;
+      h.value += it.amount ?? taxable + tax;
       if (interState) h.igst += tax; else { h.cgst += tax / 2; h.sgst += tax / 2; }
       hsnMap.set(key, h);
 
-      if (!it.gstPct) exemp.nil += it.taxable || 0;
+      /* ---- nil rated / exempt / non-GST (8) ---- */
+      if (rate === 0) {
+        if (gstin) {
+          if (interState) exemp.interReg += taxable; else exemp.intraReg += taxable;
+        } else if (interState) exemp.interUnreg += taxable; else exemp.intraUnreg += taxable;
+      }
     }
 
     const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
 
-    if (cust?.gstin) {
+    if (gstin) {
       for (const [rate, v] of rates) {
         b2b.push([
-          cust.gstin, cust.name || cust.shopName || "", invoice.number, dmy(invoice.date),
+          gstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
           invoiceValue, place, "N", "", "Regular B2B", "", rate, r2(v.taxable), 0,
         ]);
       }
-    } else if (interState && invoiceValue > 250000) {
+    } else if (interState && invoiceValue > B2CL_LIMIT) {
       for (const [rate, v] of rates) {
         b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), 0, ""]);
       }
     } else {
+      // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
       for (const [rate, v] of rates) {
         const type = interState ? "Inter-State" : "Intra-State";
-        const key = `${type}|${place}|${rate}`;
+        const key = `${type}|${place}|${rate}|`;
         const cur = b2csMap.get(key) || { type, pos: place, rate, taxable: 0, cess: 0 };
         cur.taxable += v.taxable;
         b2csMap.set(key, cur);
@@ -221,16 +297,18 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     h.hsn, h.desc, h.uqc, h.qty, r2(h.value), h.rate, r2(h.taxable), r2(h.igst), r2(h.cgst), r2(h.sgst), r2(h.cess),
   ]);
   const exempRows: Row[] = [
-    ["Inter-State supplies to registered persons", 0, 0, 0],
-    ["Intra-State supplies to registered persons", r2(exemp.nil), r2(exemp.exempted), r2(exemp.nonGst)],
-    ["Inter-State supplies to unregistered persons", 0, 0, 0],
-    ["Intra-State supplies to unregistered persons", 0, 0, 0],
+    ["Inter-State supplies to registered persons", r2(exemp.interReg), 0, 0],
+    ["Intra-State supplies to registered persons", r2(exemp.intraReg), 0, 0],
+    ["Inter-State supplies to unregistered persons", r2(exemp.interUnreg), 0, 0],
+    ["Intra-State supplies to unregistered persons", r2(exemp.intraUnreg), 0, 0],
   ];
 
   const data: Record<string, Row[]> = {
     b2b, b2cl, b2cs: b2csRows, cdnr: [], cdnur: [], exp: [], at: [], atadj: [],
     exemp: exempRows, hsn: hsnRows, docs: docsRows,
   };
+
+  if (!company?.gstin) warnings.push("Company GSTIN is not configured in Settings - file name will not contain the GSTIN.");
 
   for (const name of GSTR1_SHEETS.slice(1)) {
     const s = SECTIONS[name];
@@ -262,8 +340,9 @@ function addSheet(wb: XLSX.WorkBook, name: string, _t: null, rows: Row[], widths
   XLSX.utils.book_append_sheet(wb, ws, name);
 }
 
+/** Loads the SAVED header + SAVED line items for every invoice (source of truth). */
 async function fetchDetails(invoices: Invoice[]) {
-  const out: { invoice: Invoice; items: InvoiceItem[] }[] = [];
+  const out: Detail[] = [];
   const size = 5;
   for (let i = 0; i < invoices.length; i += size) {
     const chunk = invoices.slice(i, i + size);
