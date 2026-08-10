@@ -329,7 +329,31 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
 
     let classification = "";
-    if (b2bGstin) {
+    // Real credit/debit-note detection: the ERP has no note model, so the only
+    // genuine source is a saved document with a negative value / negative
+    // quantities. Nothing is fabricated when none exists.
+    const isCreditNote =
+      (invoice.total || 0) < 0 ||
+      (items.length > 0 && items.every((it) => (it.amount ?? 0) < 0 || (it.taxable ?? 0) < 0));
+
+    if (isCreditNote) {
+      classification = b2bGstin ? "CDNR" : "CDNUR";
+      const supplyType = interState ? "Inter-State" : "Intra-State";
+      for (const [rate, v] of rates) {
+        if (b2bGstin) {
+          cdnr.push([
+            b2bGstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
+            "C", place, "N", supplyType, Math.abs(invoiceValue), "", rate, r2(Math.abs(v.taxable)), 0,
+          ]);
+        } else {
+          cdnur.push([
+            interState && Math.abs(invoiceValue) > B2CL_LIMIT ? "B2CL" : "B2CS",
+            invoice.number, dmy(invoice.date), "C", place, Math.abs(invoiceValue), "",
+            rate, r2(Math.abs(v.taxable)), 0,
+          ]);
+        }
+      }
+    } else if (b2bGstin) {
       classification = "B2B";
       for (const [rate, v] of rates) {
         b2b.push([
