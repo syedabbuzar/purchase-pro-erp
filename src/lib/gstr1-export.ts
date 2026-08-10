@@ -94,6 +94,21 @@ const SECTIONS: Record<string, { title: string; headers: string[]; widths: numbe
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const dmy = (d?: string | null) => (d ? new Date(d).toLocaleDateString("en-GB").replace(/\//g, "-") : "");
 
+/**
+ * Normalises any saved date value (ISO with time, UTC "Z", or date-only) to a
+ * plain yyyy-mm-dd key so period filtering can never drop an invoice because of
+ * a timezone shift.
+ */
+function dateKey(d?: string | null): string {
+  if (!d) return "";
+  const s = String(d);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
 function pos(state?: string, code?: string) {
   if (!code && !state) return "";
   return `${(code || "").padStart(2, "0")}-${state || ""}`.replace(/^-/, "");
@@ -190,8 +205,8 @@ interface Detail {
 
 /** Fetches ERP data for the period and builds the workbook. */
 export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Result> {
-  const from = new Date(opts.from + "T00:00:00");
-  const to = new Date(opts.to + "T23:59:59");
+  const fromKey = dateKey(opts.from);
+  const toKey = dateKey(opts.to);
 
   // Period filtering is pushed to the backend (/sales-report?from&to); the full
   // list is merged in so cancelled/other-status documents of the period are not lost.
@@ -211,8 +226,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const inPeriod = [...byId.values()].filter((i) => {
     if (i.status === "deleted") return false;
-    const d = i.date ? new Date(i.date) : null;
-    return !!d && d >= from && d <= to;
+    const k = dateKey(i.date);
+    return !!k && k >= fromKey && k <= toKey;
   });
 
   const custById = new Map((customers || []).map((c) => [String(c._id), c]));
@@ -223,6 +238,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const b2b: Row[] = [];
   const b2cl: Row[] = [];
+  const cdnr: Row[] = [];
+  const cdnur: Row[] = [];
   const b2csMap = new Map<string, { type: string; pos: string; rate: number; taxable: number; cess: number }>();
   const hsnMap = new Map<string, { hsn: string; desc: string; uqc: string; qty: number; value: number; rate: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>();
   const exemp = {
@@ -312,7 +329,31 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
 
     let classification = "";
-    if (b2bGstin) {
+    // Real credit/debit-note detection: the ERP has no note model, so the only
+    // genuine source is a saved document with a negative value / negative
+    // quantities. Nothing is fabricated when none exists.
+    const isCreditNote =
+      (invoice.total || 0) < 0 ||
+      (items.length > 0 && items.every((it) => (it.amount ?? 0) < 0 || (it.taxable ?? 0) < 0));
+
+    if (isCreditNote) {
+      classification = b2bGstin ? "CDNR" : "CDNUR";
+      const supplyType = interState ? "Inter-State" : "Intra-State";
+      for (const [rate, v] of rates) {
+        if (b2bGstin) {
+          cdnr.push([
+            b2bGstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
+            "C", place, "N", supplyType, Math.abs(invoiceValue), "", rate, r2(Math.abs(v.taxable)), 0,
+          ]);
+        } else {
+          cdnur.push([
+            interState && Math.abs(invoiceValue) > B2CL_LIMIT ? "B2CL" : "B2CS",
+            invoice.number, dmy(invoice.date), "C", place, Math.abs(invoiceValue), "",
+            rate, r2(Math.abs(v.taxable)), 0,
+          ]);
+        }
+      }
+    } else if (b2bGstin) {
       classification = "B2B";
       for (const [rate, v] of rates) {
         b2b.push([
@@ -382,65 +423,128 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   ];
 
   const data: Record<string, Row[]> = {
-    b2b, b2cl, b2cs: b2csRows, cdnr: [], cdnur: [], exp: [], at: [], atadj: [],
+    b2b, b2cl, b2cs: b2csRows, cdnr, cdnur, exp: [], at: [], atadj: [],
     exemp: exempRows, hsn: hsnRows, docs: docsRows,
   };
 
   if (!company?.gstin) warnings.push("Company GSTIN is not configured in Settings - file name will not contain the GSTIN.");
 
+  // Data always starts on row 5 (1-based): row1 title, rows 2-3 template/blank,
+  // row 4 header. Template rows are written first, then every data row is
+  // appended explicitly at that origin so headers can never be overwritten.
+  const DATA_START_ROW = 5;
+  const written: Record<string, number> = {};
+  const cellTrace: string[] = [];
+
   for (const name of GSTR1_SHEETS.slice(1)) {
     const s = SECTIONS[name];
-    const rows: Row[] = [[s.title], [], [], s.headers, ...data[name]];
+    const template: Row[] = [[s.title], [], [], s.headers];
     if (name === "docs") {
-      rows[1] = [null, null, null, "Total Number", "Total Cancelled"];
-      rows[2] = [null, null, null, numbers.length, cancelled];
+      template[1] = [null, null, null, "Total Number", "Total Cancelled"];
+      template[2] = [null, null, null, numbers.length, cancelled];
     }
-    addSheet(wb, name, null, rows, s.widths);
+    const rows = data[name];
+    // Pad every data row to the full header width so no mapped column is dropped.
+    const padded = rows.map((r) => {
+      const out = r.slice(0, s.headers.length) as Row;
+      while (out.length < s.headers.length) out.push("");
+      return out;
+    });
+    const ws = XLSX.utils.aoa_to_sheet(template as unknown[][]);
+    if (padded.length) {
+      XLSX.utils.sheet_add_aoa(ws, padded as unknown[][], { origin: `A${DATA_START_ROW}` });
+    }
+    ws["!cols"] = s.widths.map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws, name);
+    written[name] = padded.length;
+    padded.forEach((_, i) => cellTrace.push(`${name}Data[${i}] -> sheet "${name}" -> Excel row ${DATA_START_ROW + i}`));
   }
 
   const gstin = company?.gstin || "GSTIN";
   const fileName = `GSTR-1_${gstin}_${opts.from}_to_${opts.to}.xlsx`;
 
-  /* ---------------- pre-download verification ---------------- */
-  const dataRowCount = (sheet: string) => {
-    const ws = wb.Sheets[sheet];
-    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
-    return Math.max(0, aoa.length - 4); // title + 2 blanks + header
-  };
-  const expected: Record<string, number> = {
-    b2b: b2b.length, b2cl: b2cl.length, b2cs: b2csRows.length,
-    cdnr: 0, cdnur: 0, exp: 0, at: 0, atadj: 0,
-    exemp: exempRows.length, hsn: hsnRows.length, docs: docsRows.length,
-  };
-  for (const [sheet, exp] of Object.entries(expected)) {
-    const got = dataRowCount(sheet);
-    if (got !== exp)
-      warnings.push(`Workbook verification: sheet "${sheet}" has ${got} data rows but ${exp} were built.`);
+  /* ---------------- serialise, then READ BACK the real xlsx ---------------- */
+  const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  const reopened = XLSX.read(buffer, { type: "array" });
+
+  const verified: Record<string, number> = {};
+  const valueChecks: Record<string, string> = {};
+
+  for (const name of GSTR1_SHEETS.slice(1)) {
+    const ws = reopened.Sheets[name];
+    if (!ws) {
+      warnings.push(`Workbook verification: sheet "${name}" is missing from the generated file.`);
+      verified[name] = 0;
+      continue;
+    }
+    // Keep blank rows so the template offset stays intact, then read only the
+    // data range - never compare against the raw row count.
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: true, defval: "" });
+    const dataRows = aoa
+      .slice(DATA_START_ROW - 1)
+      .filter((r) => Array.isArray(r) && r.some((c) => c !== "" && c !== null && c !== undefined));
+    verified[name] = dataRows.length;
+
+    const built = data[name].length;
+    if (verified[name] !== built)
+      warnings.push(`Workbook verification: sheet "${name}" contains ${verified[name]} data rows in the generated file but ${built} were built.`);
+
+    // Cell-level value verification of every built row against the re-read file.
+    const headers = SECTIONS[name].headers;
+    let mismatches = 0;
+    data[name].forEach((row, i) => {
+      const got = dataRows[i] || [];
+      headers.forEach((_, c) => {
+        const a = row[c] ?? "";
+        const b = (got[c] ?? "") as string | number;
+        const same = typeof a === "number" && typeof b === "number"
+          ? Math.abs(a - b) < 0.005
+          : String(a) === String(b);
+        if (!same) {
+          mismatches++;
+          warnings.push(`Workbook verification: sheet "${name}" row ${DATA_START_ROW + i}, column "${headers[c]}" expected "${a}" but the file contains "${b}".`);
+        }
+      });
+    });
+    valueChecks[name] = mismatches === 0 ? "PASS" : `FAIL (${mismatches} cells)`;
   }
-  if (GSTR1_SHEETS.some((s) => !wb.Sheets[s]))
-    warnings.push("Workbook verification: one or more required sheets are missing.");
 
   /* ---------------- debug trace ---------------- */
   /* eslint-disable no-console */
   console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source trace`);
   console.log("TOTAL SOURCE INVOICES:", details.length);
-  console.table({
-    B2B: b2b.length, B2CL: b2cl.length, B2CS: b2csRows.length,
-    CDNR: 0, CDNUR: 0, EXP: 0, AT: 0, ATADJ: 0,
-    EXEMP: exempRows.length, HSN: hsnRows.length, DOCS: docsRows.length,
-  });
+  console.table(
+    Object.fromEntries(
+      GSTR1_SHEETS.slice(1).map((n) => [
+        n.toUpperCase(),
+        { BUILT: data[n].length, WRITTEN: written[n] ?? 0, VERIFIED: verified[n] ?? 0, VALUES: valueChecks[n] ?? "-" },
+      ]),
+    ),
+  );
   console.table(trace);
+  console.log("SOURCE -> EXCEL ROW TRACE:", cellTrace);
   console.log("B2CS aggregate -> source invoices:", Object.fromEntries([...b2csSources].map(([k, v]) => [k, [...v]])));
   console.groupEnd();
   /* eslint-enable no-console */
 
-  XLSX.writeFile(wb, fileName);
+  // Download the exact bytes that were verified above.
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   return {
     fileName,
     warnings: [...new Set(warnings)],
     counts: {
-      b2b: b2b.length, b2cl: b2cl.length, b2cs: b2csRows.length, hsn: hsnRows.length,
+      b2b: verified.b2b ?? 0, b2cl: verified.b2cl ?? 0, b2cs: verified.b2cs ?? 0,
+      cdnr: verified.cdnr ?? 0, cdnur: verified.cdnur ?? 0, exemp: verified.exemp ?? 0,
+      hsn: verified.hsn ?? 0, docs: verified.docs ?? 0,
       invoices: activeInvoices.length, cancelled,
     },
   };
