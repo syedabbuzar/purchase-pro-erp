@@ -94,6 +94,21 @@ const SECTIONS: Record<string, { title: string; headers: string[]; widths: numbe
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const dmy = (d?: string | null) => (d ? new Date(d).toLocaleDateString("en-GB").replace(/\//g, "-") : "");
 
+/**
+ * Normalises any saved date value (ISO with time, UTC "Z", or date-only) to a
+ * plain yyyy-mm-dd key so period filtering can never drop an invoice because of
+ * a timezone shift.
+ */
+function dateKey(d?: string | null): string {
+  if (!d) return "";
+  const s = String(d);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
 function pos(state?: string, code?: string) {
   if (!code && !state) return "";
   return `${(code || "").padStart(2, "0")}-${state || ""}`.replace(/^-/, "");
