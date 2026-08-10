@@ -136,6 +136,53 @@ export interface Gstr1Result {
 /** B2CL rule: inter-state supply to an unregistered person, invoice value > 2.5 lakh. */
 const B2CL_LIMIT = 250000;
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+
+/** Reads a GSTIN from any of the field names the ERP/backend may use. */
+function pickGstin(...sources: unknown[]): string {
+  const keys = [
+    "gstin", "GSTIN", "gstIn", "gstNo", "gstNumber", "gstinNumber",
+    "customerGstin", "customerGSTIN", "recipientGstin", "recipientGSTIN",
+    "buyerGstin", "partyGstin",
+  ];
+  for (const src of sources) {
+    if (!src) continue;
+    if (typeof src === "string") {
+      const v = src.trim().toUpperCase();
+      if (v) return v;
+      continue;
+    }
+    const o = src as Record<string, unknown>;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) return v.trim().toUpperCase();
+    }
+    const nested = [o.customer, o.customerId, o.customerDetails, o.billingAddress, o.party];
+    for (const n of nested) {
+      if (n && typeof n === "object") {
+        const v = pickGstin(n);
+        if (v) return v;
+      }
+    }
+  }
+  return "";
+}
+
+/** Resolves the saved recipient, whether customerId is an id string or a populated object. */
+function resolveCustomer(
+  invoice: Invoice,
+  custById: Map<string, Customer>,
+): Customer | undefined {
+  const raw = invoice as unknown as Record<string, unknown>;
+  const ref = raw.customerId ?? raw.customer;
+  if (ref && typeof ref === "object") {
+    const obj = ref as Customer;
+    return custById.get(String(obj._id)) || obj;
+  }
+  if (typeof ref === "string") return custById.get(ref);
+  return undefined;
+}
+
 interface Detail {
   invoice: Invoice;
   items: InvoiceItem[];
