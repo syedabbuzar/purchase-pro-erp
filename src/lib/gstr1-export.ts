@@ -231,6 +231,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const activeInvoices: Invoice[] = [];
   const seen = new Set<string>();
+  const trace: Record<string, unknown>[] = [];
+  const b2csSources = new Map<string, Set<string>>();
 
   for (const { invoice, items } of details) {
     if (invoice.status === "cancelled" || invoice.status === "deleted") continue;
@@ -238,8 +240,12 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     seen.add(String(invoice._id));
     activeInvoices.push(invoice);
 
-    const cust = custById.get(String(invoice.customerId));
-    const gstin = (cust?.gstin || "").trim();
+    const cust = resolveCustomer(invoice, custById);
+    // GSTIN is read from the SAVED invoice first, then from the customer record.
+    const gstin = pickGstin(invoice, cust);
+    if (gstin && !GSTIN_RE.test(gstin))
+      warnings.push(`Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
+    const b2bGstin = gstin && GSTIN_RE.test(gstin) ? gstin : "";
 
     // Inter/intra is taken from the SAVED tax split on the invoice; the customer
     // master (which may have been edited later) is only a fallback.
@@ -305,27 +311,52 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
     const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
 
-    if (gstin) {
+    let classification = "";
+    if (b2bGstin) {
+      classification = "B2B";
       for (const [rate, v] of rates) {
         b2b.push([
-          gstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
+          b2bGstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
           invoiceValue, place, "N", "", "Regular B2B", "", rate, r2(v.taxable), 0,
         ]);
       }
     } else if (interState && invoiceValue > B2CL_LIMIT) {
+      classification = "B2CL";
       for (const [rate, v] of rates) {
         b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), 0, ""]);
       }
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
+      // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
+      classification = "B2CS";
       for (const [rate, v] of rates) {
+        if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
         const key = `${type}|${place}|${rate}|`;
         const cur = b2csMap.get(key) || { type, pos: place, rate, taxable: 0, cess: 0 };
         cur.taxable += v.taxable;
         b2csMap.set(key, cur);
+        const set = b2csSources.get(key) || new Set<string>();
+        set.add(`${invoice.number}#${invoice._id}`);
+        b2csSources.set(key, set);
       }
     }
+
+    trace.push({
+      invoiceId: String(invoice._id),
+      number: invoice.number,
+      gstin: gstin || "(none)",
+      date: dmy(invoice.date),
+      placeOfSupply: place,
+      taxable: r2(invoice.taxable || 0),
+      invoiceValue,
+      igst: r2(savedIgst),
+      cgst: r2(invoice.cgst || 0),
+      sgst: r2(invoice.sgst || 0),
+      rates: rates.map(([r]) => r).join(","),
+      classification,
+      targetSheet: classification.toLowerCase(),
+    });
   }
 
   /* ---------------- docs (13) ---------------- */
