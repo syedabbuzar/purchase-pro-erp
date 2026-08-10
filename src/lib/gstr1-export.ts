@@ -136,6 +136,53 @@ export interface Gstr1Result {
 /** B2CL rule: inter-state supply to an unregistered person, invoice value > 2.5 lakh. */
 const B2CL_LIMIT = 250000;
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+
+/** Reads a GSTIN from any of the field names the ERP/backend may use. */
+function pickGstin(...sources: unknown[]): string {
+  const keys = [
+    "gstin", "GSTIN", "gstIn", "gstNo", "gstNumber", "gstinNumber",
+    "customerGstin", "customerGSTIN", "recipientGstin", "recipientGSTIN",
+    "buyerGstin", "partyGstin",
+  ];
+  for (const src of sources) {
+    if (!src) continue;
+    if (typeof src === "string") {
+      const v = src.trim().toUpperCase();
+      if (v) return v;
+      continue;
+    }
+    const o = src as Record<string, unknown>;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) return v.trim().toUpperCase();
+    }
+    const nested = [o.customer, o.customerId, o.customerDetails, o.billingAddress, o.party];
+    for (const n of nested) {
+      if (n && typeof n === "object") {
+        const v = pickGstin(n);
+        if (v) return v;
+      }
+    }
+  }
+  return "";
+}
+
+/** Resolves the saved recipient, whether customerId is an id string or a populated object. */
+function resolveCustomer(
+  invoice: Invoice,
+  custById: Map<string, Customer>,
+): Customer | undefined {
+  const raw = invoice as unknown as Record<string, unknown>;
+  const ref = raw.customerId ?? raw.customer;
+  if (ref && typeof ref === "object") {
+    const obj = ref as Customer;
+    return custById.get(String(obj._id)) || obj;
+  }
+  if (typeof ref === "string") return custById.get(ref);
+  return undefined;
+}
+
 interface Detail {
   invoice: Invoice;
   items: InvoiceItem[];
@@ -184,6 +231,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const activeInvoices: Invoice[] = [];
   const seen = new Set<string>();
+  const trace: Record<string, unknown>[] = [];
+  const b2csSources = new Map<string, Set<string>>();
 
   for (const { invoice, items } of details) {
     if (invoice.status === "cancelled" || invoice.status === "deleted") continue;
@@ -191,8 +240,12 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     seen.add(String(invoice._id));
     activeInvoices.push(invoice);
 
-    const cust = custById.get(String(invoice.customerId));
-    const gstin = (cust?.gstin || "").trim();
+    const cust = resolveCustomer(invoice, custById);
+    // GSTIN is read from the SAVED invoice first, then from the customer record.
+    const gstin = pickGstin(invoice, cust);
+    if (gstin && !GSTIN_RE.test(gstin))
+      warnings.push(`Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
+    const b2bGstin = gstin && GSTIN_RE.test(gstin) ? gstin : "";
 
     // Inter/intra is taken from the SAVED tax split on the invoice; the customer
     // master (which may have been edited later) is only a fallback.
@@ -250,7 +303,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
       /* ---- nil rated / exempt / non-GST (8) ---- */
       if (rate === 0) {
-        if (gstin) {
+        if (b2bGstin) {
           if (interState) exemp.interReg += taxable; else exemp.intraReg += taxable;
         } else if (interState) exemp.interUnreg += taxable; else exemp.intraUnreg += taxable;
       }
@@ -258,27 +311,52 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
     const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
 
-    if (gstin) {
+    let classification = "";
+    if (b2bGstin) {
+      classification = "B2B";
       for (const [rate, v] of rates) {
         b2b.push([
-          gstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
+          b2bGstin, cust?.name || cust?.shopName || "", invoice.number, dmy(invoice.date),
           invoiceValue, place, "N", "", "Regular B2B", "", rate, r2(v.taxable), 0,
         ]);
       }
     } else if (interState && invoiceValue > B2CL_LIMIT) {
+      classification = "B2CL";
       for (const [rate, v] of rates) {
         b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), 0, ""]);
       }
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
+      // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
+      classification = "B2CS";
       for (const [rate, v] of rates) {
+        if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
         const key = `${type}|${place}|${rate}|`;
         const cur = b2csMap.get(key) || { type, pos: place, rate, taxable: 0, cess: 0 };
         cur.taxable += v.taxable;
         b2csMap.set(key, cur);
+        const set = b2csSources.get(key) || new Set<string>();
+        set.add(`${invoice.number}#${invoice._id}`);
+        b2csSources.set(key, set);
       }
     }
+
+    trace.push({
+      invoiceId: String(invoice._id),
+      number: invoice.number,
+      gstin: gstin || "(none)",
+      date: dmy(invoice.date),
+      placeOfSupply: place,
+      taxable: r2(invoice.taxable || 0),
+      invoiceValue,
+      igst: r2(savedIgst),
+      cgst: r2(invoice.cgst || 0),
+      sgst: r2(invoice.sgst || 0),
+      rates: rates.map(([r]) => r).join(","),
+      classification,
+      targetSheet: classification.toLowerCase(),
+    });
   }
 
   /* ---------------- docs (13) ---------------- */
@@ -322,6 +400,40 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const gstin = company?.gstin || "GSTIN";
   const fileName = `GSTR-1_${gstin}_${opts.from}_to_${opts.to}.xlsx`;
+
+  /* ---------------- pre-download verification ---------------- */
+  const dataRowCount = (sheet: string) => {
+    const ws = wb.Sheets[sheet];
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
+    return Math.max(0, aoa.length - 4); // title + 2 blanks + header
+  };
+  const expected: Record<string, number> = {
+    b2b: b2b.length, b2cl: b2cl.length, b2cs: b2csRows.length,
+    cdnr: 0, cdnur: 0, exp: 0, at: 0, atadj: 0,
+    exemp: exempRows.length, hsn: hsnRows.length, docs: docsRows.length,
+  };
+  for (const [sheet, exp] of Object.entries(expected)) {
+    const got = dataRowCount(sheet);
+    if (got !== exp)
+      warnings.push(`Workbook verification: sheet "${sheet}" has ${got} data rows but ${exp} were built.`);
+  }
+  if (GSTR1_SHEETS.some((s) => !wb.Sheets[s]))
+    warnings.push("Workbook verification: one or more required sheets are missing.");
+
+  /* ---------------- debug trace ---------------- */
+  /* eslint-disable no-console */
+  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source trace`);
+  console.log("TOTAL SOURCE INVOICES:", details.length);
+  console.table({
+    B2B: b2b.length, B2CL: b2cl.length, B2CS: b2csRows.length,
+    CDNR: 0, CDNUR: 0, EXP: 0, AT: 0, ATADJ: 0,
+    EXEMP: exempRows.length, HSN: hsnRows.length, DOCS: docsRows.length,
+  });
+  console.table(trace);
+  console.log("B2CS aggregate -> source invoices:", Object.fromEntries([...b2csSources].map(([k, v]) => [k, [...v]])));
+  console.groupEnd();
+  /* eslint-enable no-console */
+
   XLSX.writeFile(wb, fileName);
 
   return {
