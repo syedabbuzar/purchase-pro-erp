@@ -303,7 +303,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
       /* ---- nil rated / exempt / non-GST (8) ---- */
       if (rate === 0) {
-        if (gstin) {
+        if (b2bGstin) {
           if (interState) exemp.interReg += taxable; else exemp.intraReg += taxable;
         } else if (interState) exemp.interUnreg += taxable; else exemp.intraUnreg += taxable;
       }
