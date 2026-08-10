@@ -400,6 +400,40 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const gstin = company?.gstin || "GSTIN";
   const fileName = `GSTR-1_${gstin}_${opts.from}_to_${opts.to}.xlsx`;
+
+  /* ---------------- pre-download verification ---------------- */
+  const dataRowCount = (sheet: string) => {
+    const ws = wb.Sheets[sheet];
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
+    return Math.max(0, aoa.length - 4); // title + 2 blanks + header
+  };
+  const expected: Record<string, number> = {
+    b2b: b2b.length, b2cl: b2cl.length, b2cs: b2csRows.length,
+    cdnr: 0, cdnur: 0, exp: 0, at: 0, atadj: 0,
+    exemp: exempRows.length, hsn: hsnRows.length, docs: docsRows.length,
+  };
+  for (const [sheet, exp] of Object.entries(expected)) {
+    const got = dataRowCount(sheet);
+    if (got !== exp)
+      warnings.push(`Workbook verification: sheet "${sheet}" has ${got} data rows but ${exp} were built.`);
+  }
+  if (GSTR1_SHEETS.some((s) => !wb.Sheets[s]))
+    warnings.push("Workbook verification: one or more required sheets are missing.");
+
+  /* ---------------- debug trace ---------------- */
+  /* eslint-disable no-console */
+  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source trace`);
+  console.log("TOTAL SOURCE INVOICES:", details.length);
+  console.table({
+    B2B: b2b.length, B2CL: b2cl.length, B2CS: b2csRows.length,
+    CDNR: 0, CDNUR: 0, EXP: 0, AT: 0, ATADJ: 0,
+    EXEMP: exempRows.length, HSN: hsnRows.length, DOCS: docsRows.length,
+  });
+  console.table(trace);
+  console.log("B2CS aggregate -> source invoices:", Object.fromEntries([...b2csSources].map(([k, v]) => [k, [...v]])));
+  console.groupEnd();
+  /* eslint-enable no-console */
+
   XLSX.writeFile(wb, fileName);
 
   return {
