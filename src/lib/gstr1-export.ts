@@ -238,6 +238,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const b2b: Row[] = [];
   const b2cl: Row[] = [];
+  const cdnr: Row[] = [];
+  const cdnur: Row[] = [];
   const b2csMap = new Map<string, { type: string; pos: string; rate: number; taxable: number; cess: number }>();
   const hsnMap = new Map<string, { hsn: string; desc: string; uqc: string; qty: number; value: number; rate: number; taxable: number; igst: number; cgst: number; sgst: number; cess: number }>();
   const exemp = {
