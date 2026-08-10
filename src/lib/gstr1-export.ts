@@ -205,8 +205,8 @@ interface Detail {
 
 /** Fetches ERP data for the period and builds the workbook. */
 export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Result> {
-  const from = new Date(opts.from + "T00:00:00");
-  const to = new Date(opts.to + "T23:59:59");
+  const fromKey = dateKey(opts.from);
+  const toKey = dateKey(opts.to);
 
   // Period filtering is pushed to the backend (/sales-report?from&to); the full
   // list is merged in so cancelled/other-status documents of the period are not lost.
@@ -226,8 +226,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const inPeriod = [...byId.values()].filter((i) => {
     if (i.status === "deleted") return false;
-    const d = i.date ? new Date(i.date) : null;
-    return !!d && d >= from && d <= to;
+    const k = dateKey(i.date);
+    return !!k && k >= fromKey && k <= toKey;
   });
 
   const custById = new Map((customers || []).map((c) => [String(c._id), c]));
