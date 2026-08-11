@@ -384,7 +384,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   const activeInvoices: Invoice[] = [];
   const seen = new Set<string>();
   const trace: Record<string, unknown>[] = [];
-  const b2csSources = new Map<string, Set<string>>();
+  const b2csSources = new Map<string, { sourceInvoiceIds: Set<string>; sourceInvoiceNumbers: Set<string>; sourceLineItemIds: Set<string> }>();
 
   for (const { invoice, items } of details) {
     if (invoice.status === "cancelled" || invoice.status === "deleted") {
