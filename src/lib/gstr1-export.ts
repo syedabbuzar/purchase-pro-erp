@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { invoicesApi, customersApi, companyApi, productsApi, reportsApi } from "./services";
+import { get } from "./api";
 import type { Company, Customer, Invoice, InvoiceItem, Product } from "./types";
 
 /* ------------------------------------------------------------------
