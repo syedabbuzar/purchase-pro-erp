@@ -770,11 +770,26 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   if (excluded.length)
     warnings.push(`${excluded.length} saved invoice(s) outside the selected period / deleted were not included (see console audit for the list).`);
 
+  // Tax reconciliation: saved header tax vs the tax written into the HSN sheet.
+  const hsnTotals = [...hsnMap.values()].reduce(
+    (a, h) => ({ igst: a.igst + h.igst, cgst: a.cgst + h.cgst, sgst: a.sgst + h.sgst, cess: a.cess + h.cess }),
+    { igst: 0, cgst: 0, sgst: 0, cess: 0 },
+  );
+  (["igst", "cgst", "sgst", "cess"] as const).forEach((k) => {
+    if (Math.abs(r2(hsnTotals[k]) - r2(srcTotals[k])) > 1)
+      warnings.push(
+        `Reconciliation: saved invoices total ${k.toUpperCase()} ${r2(srcTotals[k])} but the HSN sheet represents ${r2(hsnTotals[k])}.`,
+      );
+  });
+
+  const classCounts = Object.fromEntries(Object.entries(bySheetSources).map(([k, v]) => [k, v.length]));
+
   console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source audit`);
   console.log("SAVED INVOICES FETCHED FROM ERP (all time):", byId.size);
   console.log("REAL INVOICES FOUND IN PERIOD:", details.length, "| reported:", trace.length, "| cancelled:", details.filter((d) => d.invoice.status === "cancelled").length);
   console.table(trace);
   console.log("CLASSIFICATION -> SOURCE INVOICE NUMBERS:", bySheetSources);
+  console.log("SOURCE INVOICE COUNT PER CLASSIFICATION:", classCounts);
   console.log("SOURCE TOTALS:", {
     invoices: trace.length,
     taxable: r2(srcTotals.taxable),
@@ -785,6 +800,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     cess: r2(srcTotals.cess),
   });
   console.log("WORKBOOK TAXABLE REPRESENTED:", r2(sheetTaxable));
+  console.log("WORKBOOK TAX REPRESENTED (hsn):", { igst: r2(hsnTotals.igst), cgst: r2(hsnTotals.cgst), sgst: r2(hsnTotals.sgst), cess: r2(hsnTotals.cess) });
   console.log("MISSING:", excluded.length, excluded);
   console.log("UNCLASSIFIED:", unclassified.length);
   console.table(
