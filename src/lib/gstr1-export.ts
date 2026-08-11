@@ -597,7 +597,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   /* eslint-disable no-console */
   /* ---- source audit + reconciliation over ALL saved invoices in period ---- */
   const num = (v: unknown) => (typeof v === "number" ? v : 0);
-  const srcTotals = trace.reduce(
+  const srcTotals = trace.reduce<{ taxable: number; invoiceValue: number; igst: number; cgst: number; sgst: number; cess: number }>(
     (a, t) => ({
       taxable: a.taxable + num(t.taxable),
       invoiceValue: a.invoiceValue + num(t.invoiceValue),
