@@ -115,6 +115,74 @@ function pos(state?: string, code?: string) {
   return `${(code || "").padStart(2, "0")}-${state || ""}`.replace(/^-/, "");
 }
 
+/** State code -> name, used only to render a saved POS code as "27-Maharashtra". */
+const STATE_NAMES: Record<string, string> = {
+  "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+  "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+  "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+  "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+  "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+  "26": "Dadra & Nagar Haveli and Daman & Diu", "27": "Maharashtra", "29": "Karnataka",
+  "30": "Goa", "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu", "34": "Puducherry",
+  "35": "Andaman & Nicobar Islands", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+  "97": "Other Territory",
+};
+
+/** Reads a state code from any saved field / a GSTIN prefix. */
+function codeOf(...vals: unknown[]): string {
+  for (const v of vals) {
+    if (typeof v === "number" && v > 0) return String(v).padStart(2, "0");
+    if (typeof v === "string") {
+      const m = v.trim().match(/^(\d{1,2})/);
+      if (m) return m[1].padStart(2, "0");
+    }
+  }
+  return "";
+}
+
+/**
+ * Place of supply, SAVED VALUE FIRST.
+ * Order: value saved on the invoice snapshot -> customer state -> (intra only)
+ * company state. Never defaults to any hard-coded state.
+ */
+function resolvePos(
+  invoice: Invoice,
+  cust?: Customer,
+  company?: Company | null,
+): { pos: string; code: string; source: string } {
+  const raw = invoice as unknown as Record<string, unknown>;
+  const savedText = [raw.placeOfSupply, raw.pos, raw.placeOfSupplyName].find(
+    (v) => typeof v === "string" && (v as string).trim(),
+  ) as string | undefined;
+  const savedCode = codeOf(raw.placeOfSupplyCode, raw.posCode, raw.stateCode, savedText);
+  if (savedText && /^\d{1,2}\s*-\s*\S/.test(savedText.trim()))
+    return { pos: savedText.trim().replace(/\s*-\s*/, "-"), code: savedCode, source: "invoice snapshot" };
+  if (savedCode)
+    return {
+      pos: pos(STATE_NAMES[savedCode] || (savedText || "").replace(/^\d+\s*-?\s*/, ""), savedCode),
+      code: savedCode,
+      source: "invoice snapshot",
+    };
+  if (savedText) return { pos: savedText.trim(), code: "", source: "invoice snapshot" };
+
+  const custCode = codeOf(cust?.stateCode, cust?.gstin);
+  if (custCode || cust?.state)
+    return {
+      pos: pos(cust?.state || STATE_NAMES[custCode], custCode),
+      code: custCode,
+      source: "customer record",
+    };
+
+  const compCode = codeOf(company?.stateCode, company?.gstin);
+  if (compCode || company?.state)
+    return {
+      pos: pos(company?.state || STATE_NAMES[compCode], compCode),
+      code: compCode,
+      source: "company state (fallback)",
+    };
+  return { pos: "", code: "", source: "none" };
+}
+
 export interface Gstr1Options {
   from: string; // yyyy-mm-dd
   to: string;   // yyyy-mm-dd
@@ -316,11 +384,27 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   const activeInvoices: Invoice[] = [];
   const seen = new Set<string>();
   const trace: Record<string, unknown>[] = [];
-  const b2csSources = new Map<string, Set<string>>();
+  const b2csSources = new Map<string, { sourceInvoiceIds: Set<string>; sourceInvoiceNumbers: Set<string>; sourceLineItemIds: Set<string> }>();
 
   for (const { invoice, items } of details) {
-    if (invoice.status === "cancelled" || invoice.status === "deleted") continue;
-    if (seen.has(String(invoice._id))) continue;
+    if (invoice.status === "cancelled" || invoice.status === "deleted") {
+      excluded.push({
+        invoiceId: String(invoice._id),
+        number: invoice.number,
+        date: dateKey(invoice.date) || "(no date)",
+        reason: `status = ${invoice.status} (reported in docs (13) only)`,
+      });
+      continue;
+    }
+    if (seen.has(String(invoice._id))) {
+      excluded.push({
+        invoiceId: String(invoice._id),
+        number: invoice.number,
+        date: dateKey(invoice.date) || "(no date)",
+        reason: "duplicate transaction id",
+      });
+      continue;
+    }
     seen.add(String(invoice._id));
     activeInvoices.push(invoice);
 
@@ -328,22 +412,37 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     // GSTIN is read from the SAVED invoice first, then from the customer record.
     const gstin = pickGstin(invoice, cust);
     if (gstin && !GSTIN_RE.test(gstin))
-      warnings.push(`Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
+      warnings.push(`INVALID_GSTIN - Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
     const b2bGstin = gstin && GSTIN_RE.test(gstin) ? gstin : "";
 
-    // Inter/intra is taken from the SAVED tax split on the invoice; the customer
-    // master (which may have been edited later) is only a fallback.
     const savedIgst = invoice.igst || 0;
     const savedCgst = (invoice.cgst || 0) + (invoice.sgst || 0);
-    const interState =
-      savedIgst > 0 ? true
-        : savedCgst > 0 ? false
-          : !!cust?.stateCode && !!company?.stateCode && cust.stateCode !== company.stateCode;
 
-    const place = interState
-      ? pos(cust?.state, cust?.stateCode)
-      : pos(cust?.state || company?.state, cust?.stateCode || company?.stateCode);
-    if (!place) warnings.push(`Invoice ${invoice.number}: missing place of supply (customer state).`);
+    // Place of supply: saved value on the invoice first, customer next.
+    const posInfo = resolvePos(invoice, cust, company);
+    const place = posInfo.pos;
+    const companyCode = codeOf(company?.stateCode, company?.gstin);
+
+    // Supply type: POS vs company state when both are known (authoritative),
+    // otherwise the SAVED tax split on the invoice.
+    let supplySource = "place of supply vs company state";
+    let interState: boolean;
+    if (posInfo.code && companyCode) {
+      interState = posInfo.code !== companyCode;
+      const bySplit = savedIgst > 0 ? true : savedCgst > 0 ? false : null;
+      if (bySplit !== null && bySplit !== interState) {
+        interState = bySplit; // saved tax is the legal record
+        supplySource = "saved tax split (conflicts with place of supply)";
+        warnings.push(
+          `Invoice ${invoice.number}: place of supply ${place} implies ${posInfo.code !== companyCode ? "inter" : "intra"}-state but the saved tax is ${bySplit ? "IGST" : "CGST/SGST"} - the saved tax split was used.`,
+        );
+      }
+    } else {
+      interState = savedIgst > 0 ? true : savedCgst > 0 ? false : false;
+      supplySource = "saved tax split";
+    }
+
+    if (!place) warnings.push(`Invoice ${invoice.number}: no place of supply saved on the invoice or the customer record.`);
     if (!invoice.date) warnings.push(`Invoice ${invoice.number}: missing invoice date.`);
     if (!items.length) warnings.push(`Invoice ${invoice.number}: no saved line items found - excluded from HSN summary.`);
 
@@ -360,13 +459,25 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     if (Math.abs(r2((invoice.taxable || 0) + headerTax) - invoiceValue) > 1)
       warnings.push(`Invoice ${invoice.number}: invoice total (${invoiceValue}) does not equal taxable + tax (${r2((invoice.taxable || 0) + headerTax)}).`);
 
-    // Rate-wise split built from the SAVED line items only.
-    const byRate = new Map<number, { taxable: number }>();
-    for (const it of items) {
+    // Rate-wise split built from the SAVED line items only (per line item, so an
+    // invoice with several GST rates produces one row per rate - never merged).
+    const byRate = new Map<number, { taxable: number; igst: number; cgst: number; sgst: number; cess: number; lineIds: string[] }>();
+    for (const [idx, it] of items.entries()) {
       const rate = it.gstPct || 0;
       const taxable = it.taxable || 0;
-      const cur = byRate.get(rate) || { taxable: 0 };
+      const rawIt = it as unknown as Record<string, unknown>;
+      const savedTax = it.gstAmount ?? taxable * (rate / 100);
+      const lIgst = typeof rawIt.igst === "number" ? rawIt.igst : interState ? savedTax : 0;
+      const lCgst = typeof rawIt.cgst === "number" ? rawIt.cgst : interState ? 0 : savedTax / 2;
+      const lSgst = typeof rawIt.sgst === "number" ? rawIt.sgst : interState ? 0 : savedTax / 2;
+      const lCess = typeof rawIt.cess === "number" ? rawIt.cess : 0;
+      const cur = byRate.get(rate) || { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, lineIds: [] };
       cur.taxable += taxable;
+      cur.igst += lIgst;
+      cur.cgst += lCgst;
+      cur.sgst += lSgst;
+      cur.cess += lCess;
+      cur.lineIds.push(String(it._id || `${invoice._id}#${idx}`));
       byRate.set(rate, cur);
 
       /* ---- HSN summary from saved line items ---- */
@@ -375,14 +486,18 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
         hsn = prodById.get(String(it.productId))?.hsn || "";
         warnings.push(`Invoice ${invoice.number}: item "${it.name}" has no HSN saved on the invoice${hsn ? " (product master value used)" : ""}.`);
       }
-      const key = `${hsn}|${rate}`;
-      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc: "PCS-PIECES", qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+      const uqc = (typeof rawIt.uqc === "string" && rawIt.uqc) || "PCS-PIECES";
+      const key = `${hsn}|${rate}|${uqc}`;
+      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc, qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
       const qty = (it.boxes || 0) * (it.boxSize || 1) + (it.pieces || 0);
-      const tax = it.gstAmount ?? taxable * (rate / 100); // saved tax amount preferred
+      const tax = savedTax; // saved tax amount preferred
       h.qty += qty;
       h.taxable += taxable;
       h.value += it.amount ?? taxable + tax;
-      if (interState) h.igst += tax; else { h.cgst += tax / 2; h.sgst += tax / 2; }
+      h.igst += lIgst;
+      h.cgst += lCgst;
+      h.sgst += lSgst;
+      h.cess += lCess;
       hsnMap.set(key, h);
 
       /* ---- nil rated / exempt / non-GST (8) ---- */
@@ -402,7 +517,14 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     if (!rates.length) {
       const headerTaxable = invoice.taxable || 0;
       const derivedRate = headerTaxable > 0 ? Math.round((headerTax / headerTaxable) * 100 * 100) / 100 : 0;
-      rates = [[derivedRate, { taxable: headerTaxable }]];
+      rates = [[derivedRate, {
+        taxable: headerTaxable,
+        igst: savedIgst,
+        cgst: invoice.cgst || 0,
+        sgst: invoice.sgst || 0,
+        cess: 0,
+        lineIds: [],
+      }]];
       warnings.push(
         `Invoice ${invoice.number}: no saved line items were returned - reported from the saved invoice header (taxable ${r2(headerTaxable)}, rate ${derivedRate}%), and excluded from the HSN summary.`,
       );
@@ -442,25 +564,37 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
         ]);
       }
     } else if (interState && invoiceValue > B2CL_LIMIT) {
-      classification = "B2CL";
-      for (const [rate, v] of rates) {
-        b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), 0, ""]);
+      // Unregistered + inter-state + invoice value above the B2CL threshold.
+      // Only taxable rates are reported here; 0% lines are already in exemp (8).
+      const taxableRates = rates.filter(([rate]) => rate > 0);
+      classification = taxableRates.length ? (taxableRates.length === rates.length ? "B2CL" : "B2CL+EXEMP") : "EXEMP";
+      for (const [rate, v] of taxableRates) {
+        b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), r2(v.cess), ""]);
       }
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
       // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
-      classification = rates.every(([rate]) => rate === 0) ? "EXEMP" : "B2CS";
+      const taxableRates = rates.filter(([rate]) => rate > 0);
+      classification = !taxableRates.length ? "EXEMP" : taxableRates.length === rates.length ? "B2CS" : "B2CS+EXEMP";
       for (const [rate, v] of rates) {
         if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
         const key = `${type}|${place}|${rate}|`;
         const cur = b2csMap.get(key) || { type, pos: place, rate, taxable: 0, cess: 0 };
         cur.taxable += v.taxable;
+        cur.cess += v.cess;
         b2csMap.set(key, cur);
-        const set = b2csSources.get(key) || new Set<string>();
-        set.add(`${invoice.number}#${invoice._id}`);
-        b2csSources.set(key, set);
+        const src = b2csSources.get(key) || { sourceInvoiceIds: new Set<string>(), sourceInvoiceNumbers: new Set<string>(), sourceLineItemIds: new Set<string>() };
+        src.sourceInvoiceIds.add(String(invoice._id));
+        src.sourceInvoiceNumbers.add(String(invoice.number));
+        v.lineIds.forEach((id) => src.sourceLineItemIds.add(id));
+        b2csSources.set(key, src);
       }
+    }
+
+    if (!classification) {
+      classification = "UNCLASSIFIED";
+      warnings.push(`UNCLASSIFIED INVOICE ${invoice.number} (${invoice._id}): no GSTR-1 section could be determined from the saved data.`);
     }
 
     trace.push({
@@ -471,7 +605,10 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       registered: b2bGstin ? "Registered" : "Unregistered",
       date: dmy(invoice.date),
       placeOfSupply: place,
+      posSource: posInfo.source,
+      companyState: pos(company?.state, companyCode) || "(not set)",
       supply: interState ? "Inter-State" : "Intra-State",
+      supplySource,
       taxable: r2(invoice.taxable || 0),
       invoiceValue,
       igst: r2(savedIgst),
@@ -633,11 +770,26 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   if (excluded.length)
     warnings.push(`${excluded.length} saved invoice(s) outside the selected period / deleted were not included (see console audit for the list).`);
 
+  // Tax reconciliation: saved header tax vs the tax written into the HSN sheet.
+  const hsnTotals = [...hsnMap.values()].reduce(
+    (a, h) => ({ igst: a.igst + h.igst, cgst: a.cgst + h.cgst, sgst: a.sgst + h.sgst, cess: a.cess + h.cess }),
+    { igst: 0, cgst: 0, sgst: 0, cess: 0 },
+  );
+  (["igst", "cgst", "sgst", "cess"] as const).forEach((k) => {
+    if (Math.abs(r2(hsnTotals[k]) - r2(srcTotals[k])) > 1)
+      warnings.push(
+        `Reconciliation: saved invoices total ${k.toUpperCase()} ${r2(srcTotals[k])} but the HSN sheet represents ${r2(hsnTotals[k])}.`,
+      );
+  });
+
+  const classCounts = Object.fromEntries(Object.entries(bySheetSources).map(([k, v]) => [k, v.length]));
+
   console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source audit`);
   console.log("SAVED INVOICES FETCHED FROM ERP (all time):", byId.size);
   console.log("REAL INVOICES FOUND IN PERIOD:", details.length, "| reported:", trace.length, "| cancelled:", details.filter((d) => d.invoice.status === "cancelled").length);
   console.table(trace);
   console.log("CLASSIFICATION -> SOURCE INVOICE NUMBERS:", bySheetSources);
+  console.log("SOURCE INVOICE COUNT PER CLASSIFICATION:", classCounts);
   console.log("SOURCE TOTALS:", {
     invoices: trace.length,
     taxable: r2(srcTotals.taxable),
@@ -648,6 +800,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     cess: r2(srcTotals.cess),
   });
   console.log("WORKBOOK TAXABLE REPRESENTED:", r2(sheetTaxable));
+  console.log("WORKBOOK TAX REPRESENTED (hsn):", { igst: r2(hsnTotals.igst), cgst: r2(hsnTotals.cgst), sgst: r2(hsnTotals.sgst), cess: r2(hsnTotals.cess) });
   console.log("MISSING:", excluded.length, excluded);
   console.log("UNCLASSIFIED:", unclassified.length);
   console.table(
@@ -658,9 +811,20 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       ]),
     ),
   );
-  console.table(trace);
   console.log("SOURCE -> EXCEL ROW TRACE:", cellTrace);
-  console.log("B2CS aggregate -> source invoices:", Object.fromEntries([...b2csSources].map(([k, v]) => [k, [...v]])));
+  console.log(
+    "B2CS aggregate -> source invoices:",
+    Object.fromEntries(
+      [...b2csSources].map(([k, v]) => [
+        k,
+        {
+          sourceInvoiceIds: [...v.sourceInvoiceIds],
+          sourceInvoiceNumbers: [...v.sourceInvoiceNumbers],
+          sourceLineItemIds: [...v.sourceLineItemIds],
+        },
+      ]),
+    ),
+  );
   console.groupEnd();
   /* eslint-enable no-console */
 
