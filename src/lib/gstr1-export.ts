@@ -449,7 +449,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
       // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
-      classification = "B2CS";
+      classification = rates.every(([rate]) => rate === 0) ? "EXEMP" : "B2CS";
       for (const [rate, v] of rates) {
         if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
@@ -466,14 +466,18 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     trace.push({
       invoiceId: String(invoice._id),
       number: invoice.number,
+      customer: cust?.name || cust?.shopName || "(unknown)",
       gstin: gstin || "(none)",
+      registered: b2bGstin ? "Registered" : "Unregistered",
       date: dmy(invoice.date),
       placeOfSupply: place,
+      supply: interState ? "Inter-State" : "Intra-State",
       taxable: r2(invoice.taxable || 0),
       invoiceValue,
       igst: r2(savedIgst),
       cgst: r2(invoice.cgst || 0),
       sgst: r2(invoice.sgst || 0),
+      cess: 0,
       rates: rates.map(([r]) => r).join(","),
       classification,
       targetSheet: classification.toLowerCase(),
