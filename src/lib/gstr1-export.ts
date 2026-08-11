@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { invoicesApi, customersApi, companyApi, productsApi, reportsApi } from "./services";
+import { get } from "./api";
 import type { Company, Customer, Invoice, InvoiceItem, Product } from "./types";
 
 /* ------------------------------------------------------------------
@@ -203,6 +204,63 @@ interface Detail {
   items: InvoiceItem[];
 }
 
+/** Accepts any envelope shape the backend may return and always yields an array. */
+function asList<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  if (res && typeof res === "object") {
+    const o = res as Record<string, unknown>;
+    for (const k of ["invoices", "data", "docs", "results", "rows", "items", "list"]) {
+      const v = o[k];
+      if (Array.isArray(v)) return v as T[];
+      if (v && typeof v === "object") {
+        const inner = asList<T>(v);
+        if (inner.length) return inner;
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * Pulls EVERY saved invoice from the ERP, following pagination when the backend
+ * returns paged data. Old invoices created long before this report existed are
+ * retrieved the same way as new ones - there is no recency filter anywhere.
+ */
+async function fetchAllInvoices(): Promise<Invoice[]> {
+  const out = new Map<string, Invoice>();
+  const push = (list: Invoice[]) => {
+    for (const inv of list) if (inv?._id) out.set(String(inv._id), inv);
+  };
+
+  try {
+    push(asList<Invoice>(await invoicesApi.list()));
+  } catch {
+    /* ignore - paged attempt below may still succeed */
+  }
+
+  // Paged sweep: harmless when the backend ignores the params (same rows come
+  // back and are deduped by _id); essential when it does paginate.
+  let page = 1;
+  let lastSize = -1;
+  while (page <= 50) {
+    let list: Invoice[] = [];
+    try {
+      list = asList<Invoice>(await get<unknown>("/invoice/all", { page, limit: 500 }));
+    } catch {
+      break;
+    }
+    if (!list.length) break;
+    const before = out.size;
+    push(list);
+    if (out.size === before || list.length === lastSize && list.length < 500) break;
+    lastSize = list.length;
+    if (list.length < 500) break;
+    page++;
+  }
+
+  return [...out.values()];
+}
+
 /** Fetches ERP data for the period and builds the workbook. */
 export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Result> {
   const fromKey = dateKey(opts.from);
@@ -212,7 +270,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   // list is merged in so cancelled/other-status documents of the period are not lost.
   const [periodReport, allInvoices, customers, company, products] = await Promise.all([
     reportsApi.sales(opts.from, opts.to).catch(() => null),
-    invoicesApi.list().catch(() => [] as Invoice[]),
+    fetchAllInvoices().catch(() => [] as Invoice[]),
     customersApi.list(),
     companyApi.get().catch(() => null),
     productsApi.list().catch(() => [] as Product[]),
@@ -220,7 +278,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   // Deduplicate strictly by transaction id (never by invoice number).
   const byId = new Map<string, Invoice>();
-  for (const inv of [...(periodReport?.invoices || []), ...(allInvoices || [])]) {
+  for (const inv of [...asList<Invoice>(periodReport?.invoices), ...asList<Invoice>(allInvoices)]) {
     if (inv?._id && !byId.has(String(inv._id))) byId.set(String(inv._id), inv);
   }
 
@@ -230,8 +288,17 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     return !!k && k >= fromKey && k <= toKey;
   });
 
-  const custById = new Map((customers || []).map((c) => [String(c._id), c]));
-  const prodById = new Map((products || []).map((p) => [String(p._id), p]));
+  const excluded = [...byId.values()]
+    .filter((i) => !inPeriod.includes(i))
+    .map((i) => ({
+      invoiceId: String(i._id),
+      number: i.number,
+      date: dateKey(i.date) || "(no date)",
+      reason: i.status === "deleted" ? "status = deleted" : "invoice date outside selected period",
+    }));
+
+  const custById = new Map(asList<Customer>(customers).map((c) => [String(c._id), c]));
+  const prodById = new Map(asList<Product>(products).map((p) => [String(p._id), p]));
 
   const details = await fetchDetails(inPeriod);
   const warnings: string[] = [];
@@ -326,7 +393,20 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       }
     }
 
-    const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
+    let rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
+
+    // SAFETY NET for older bills: if the saved line items could not be loaded
+    // (or were never stored), the invoice must still be reported. The rate is
+    // derived from the SAVED header tax vs SAVED header taxable value - no
+    // product-master lookup, no fabricated amounts.
+    if (!rates.length) {
+      const headerTaxable = invoice.taxable || 0;
+      const derivedRate = headerTaxable > 0 ? Math.round((headerTax / headerTaxable) * 100 * 100) / 100 : 0;
+      rates = [[derivedRate, { taxable: headerTaxable }]];
+      warnings.push(
+        `Invoice ${invoice.number}: no saved line items were returned - reported from the saved invoice header (taxable ${r2(headerTaxable)}, rate ${derivedRate}%), and excluded from the HSN summary.`,
+      );
+    }
 
     let classification = "";
     // Real credit/debit-note detection: the ERP has no note model, so the only
@@ -369,7 +449,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
       // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
-      classification = "B2CS";
+      classification = rates.every(([rate]) => rate === 0) ? "EXEMP" : "B2CS";
       for (const [rate, v] of rates) {
         if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
@@ -386,14 +466,18 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     trace.push({
       invoiceId: String(invoice._id),
       number: invoice.number,
+      customer: cust?.name || cust?.shopName || "(unknown)",
       gstin: gstin || "(none)",
+      registered: b2bGstin ? "Registered" : "Unregistered",
       date: dmy(invoice.date),
       placeOfSupply: place,
+      supply: interState ? "Inter-State" : "Intra-State",
       taxable: r2(invoice.taxable || 0),
       invoiceValue,
       igst: r2(savedIgst),
       cgst: r2(invoice.cgst || 0),
       sgst: r2(invoice.sgst || 0),
+      cess: 0,
       rates: rates.map(([r]) => r).join(","),
       classification,
       targetSheet: classification.toLowerCase(),
@@ -511,8 +595,61 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   /* ---------------- debug trace ---------------- */
   /* eslint-disable no-console */
-  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source trace`);
-  console.log("TOTAL SOURCE INVOICES:", details.length);
+  /* ---- source audit + reconciliation over ALL saved invoices in period ---- */
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  const srcTotals = trace.reduce<{ taxable: number; invoiceValue: number; igst: number; cgst: number; sgst: number; cess: number }>(
+    (a, t) => ({
+      taxable: a.taxable + num(t.taxable),
+      invoiceValue: a.invoiceValue + num(t.invoiceValue),
+      igst: a.igst + num(t.igst),
+      cgst: a.cgst + num(t.cgst),
+      sgst: a.sgst + num(t.sgst),
+      cess: a.cess + num(t.cess),
+    }),
+    { taxable: 0, invoiceValue: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
+  );
+  const bySheetSources: Record<string, string[]> = {};
+  for (const t of trace) {
+    const k = String(t.classification || "UNCLASSIFIED");
+    (bySheetSources[k] ||= []).push(String(t.number));
+  }
+  const unclassified = trace.filter((t) => !t.classification);
+  if (unclassified.length)
+    warnings.push(`${unclassified.length} saved invoice(s) could not be classified: ${unclassified.map((t) => t.number).join(", ")}.`);
+
+  // Workbook taxable total (B2B + B2CL + B2CS + CDNR/CDNUR + nil-rated) must
+  // match the sum of the saved invoice taxable values.
+  const sheetTaxable =
+    b2b.reduce((s, r) => s + num(r[11]), 0) +
+    b2cl.reduce((s, r) => s + num(r[6]), 0) +
+    [...b2csMap.values()].reduce((s, v) => s + v.taxable, 0) +
+    cdnr.reduce((s, r) => s + num(r[11]), 0) +
+    cdnur.reduce((s, r) => s + num(r[8]), 0) +
+    exemp.interReg + exemp.intraReg + exemp.interUnreg + exemp.intraUnreg;
+  if (Math.abs(r2(sheetTaxable) - r2(srcTotals.taxable)) > 1)
+    warnings.push(
+      `Reconciliation: saved invoices total taxable ${r2(srcTotals.taxable)} but the workbook represents ${r2(sheetTaxable)} - ${r2(srcTotals.taxable - sheetTaxable)} is missing.`,
+    );
+  if (excluded.length)
+    warnings.push(`${excluded.length} saved invoice(s) outside the selected period / deleted were not included (see console audit for the list).`);
+
+  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source audit`);
+  console.log("SAVED INVOICES FETCHED FROM ERP (all time):", byId.size);
+  console.log("REAL INVOICES FOUND IN PERIOD:", details.length, "| reported:", trace.length, "| cancelled:", details.filter((d) => d.invoice.status === "cancelled").length);
+  console.table(trace);
+  console.log("CLASSIFICATION -> SOURCE INVOICE NUMBERS:", bySheetSources);
+  console.log("SOURCE TOTALS:", {
+    invoices: trace.length,
+    taxable: r2(srcTotals.taxable),
+    invoiceValue: r2(srcTotals.invoiceValue),
+    igst: r2(srcTotals.igst),
+    cgst: r2(srcTotals.cgst),
+    sgst: r2(srcTotals.sgst),
+    cess: r2(srcTotals.cess),
+  });
+  console.log("WORKBOOK TAXABLE REPRESENTED:", r2(sheetTaxable));
+  console.log("MISSING:", excluded.length, excluded);
+  console.log("UNCLASSIFIED:", unclassified.length);
   console.table(
     Object.fromEntries(
       GSTR1_SHEETS.slice(1).map((n) => [
