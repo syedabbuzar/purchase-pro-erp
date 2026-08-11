@@ -203,6 +203,63 @@ interface Detail {
   items: InvoiceItem[];
 }
 
+/** Accepts any envelope shape the backend may return and always yields an array. */
+function asList<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  if (res && typeof res === "object") {
+    const o = res as Record<string, unknown>;
+    for (const k of ["invoices", "data", "docs", "results", "rows", "items", "list"]) {
+      const v = o[k];
+      if (Array.isArray(v)) return v as T[];
+      if (v && typeof v === "object") {
+        const inner = asList<T>(v);
+        if (inner.length) return inner;
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * Pulls EVERY saved invoice from the ERP, following pagination when the backend
+ * returns paged data. Old invoices created long before this report existed are
+ * retrieved the same way as new ones - there is no recency filter anywhere.
+ */
+async function fetchAllInvoices(): Promise<Invoice[]> {
+  const out = new Map<string, Invoice>();
+  const push = (list: Invoice[]) => {
+    for (const inv of list) if (inv?._id) out.set(String(inv._id), inv);
+  };
+
+  try {
+    push(asList<Invoice>(await invoicesApi.list()));
+  } catch {
+    /* ignore - paged attempt below may still succeed */
+  }
+
+  // Paged sweep: harmless when the backend ignores the params (same rows come
+  // back and are deduped by _id); essential when it does paginate.
+  let page = 1;
+  let lastSize = -1;
+  while (page <= 50) {
+    let list: Invoice[] = [];
+    try {
+      list = asList<Invoice>(await get<unknown>("/invoice/all", { page, limit: 500 }));
+    } catch {
+      break;
+    }
+    if (!list.length) break;
+    const before = out.size;
+    push(list);
+    if (out.size === before || list.length === lastSize && list.length < 500) break;
+    lastSize = list.length;
+    if (list.length < 500) break;
+    page++;
+  }
+
+  return [...out.values()];
+}
+
 /** Fetches ERP data for the period and builds the workbook. */
 export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Result> {
   const fromKey = dateKey(opts.from);
@@ -212,7 +269,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   // list is merged in so cancelled/other-status documents of the period are not lost.
   const [periodReport, allInvoices, customers, company, products] = await Promise.all([
     reportsApi.sales(opts.from, opts.to).catch(() => null),
-    invoicesApi.list().catch(() => [] as Invoice[]),
+    fetchAllInvoices().catch(() => [] as Invoice[]),
     customersApi.list(),
     companyApi.get().catch(() => null),
     productsApi.list().catch(() => [] as Product[]),
@@ -220,7 +277,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   // Deduplicate strictly by transaction id (never by invoice number).
   const byId = new Map<string, Invoice>();
-  for (const inv of [...(periodReport?.invoices || []), ...(allInvoices || [])]) {
+  for (const inv of [...asList<Invoice>(periodReport?.invoices), ...asList<Invoice>(allInvoices)]) {
     if (inv?._id && !byId.has(String(inv._id))) byId.set(String(inv._id), inv);
   }
 
@@ -230,8 +287,17 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     return !!k && k >= fromKey && k <= toKey;
   });
 
-  const custById = new Map((customers || []).map((c) => [String(c._id), c]));
-  const prodById = new Map((products || []).map((p) => [String(p._id), p]));
+  const excluded = [...byId.values()]
+    .filter((i) => !inPeriod.includes(i))
+    .map((i) => ({
+      invoiceId: String(i._id),
+      number: i.number,
+      date: dateKey(i.date) || "(no date)",
+      reason: i.status === "deleted" ? "status = deleted" : "invoice date outside selected period",
+    }));
+
+  const custById = new Map(asList<Customer>(customers).map((c) => [String(c._id), c]));
+  const prodById = new Map(asList<Product>(products).map((p) => [String(p._id), p]));
 
   const details = await fetchDetails(inPeriod);
   const warnings: string[] = [];
