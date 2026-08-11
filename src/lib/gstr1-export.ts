@@ -595,8 +595,61 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   /* ---------------- debug trace ---------------- */
   /* eslint-disable no-console */
-  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source trace`);
-  console.log("TOTAL SOURCE INVOICES:", details.length);
+  /* ---- source audit + reconciliation over ALL saved invoices in period ---- */
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  const srcTotals = trace.reduce(
+    (a, t) => ({
+      taxable: a.taxable + num(t.taxable),
+      invoiceValue: a.invoiceValue + num(t.invoiceValue),
+      igst: a.igst + num(t.igst),
+      cgst: a.cgst + num(t.cgst),
+      sgst: a.sgst + num(t.sgst),
+      cess: a.cess + num(t.cess),
+    }),
+    { taxable: 0, invoiceValue: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
+  );
+  const bySheetSources: Record<string, string[]> = {};
+  for (const t of trace) {
+    const k = String(t.classification || "UNCLASSIFIED");
+    (bySheetSources[k] ||= []).push(String(t.number));
+  }
+  const unclassified = trace.filter((t) => !t.classification);
+  if (unclassified.length)
+    warnings.push(`${unclassified.length} saved invoice(s) could not be classified: ${unclassified.map((t) => t.number).join(", ")}.`);
+
+  // Workbook taxable total (B2B + B2CL + B2CS + CDNR/CDNUR + nil-rated) must
+  // match the sum of the saved invoice taxable values.
+  const sheetTaxable =
+    b2b.reduce((s, r) => s + num(r[11]), 0) +
+    b2cl.reduce((s, r) => s + num(r[6]), 0) +
+    [...b2csMap.values()].reduce((s, v) => s + v.taxable, 0) +
+    cdnr.reduce((s, r) => s + num(r[11]), 0) +
+    cdnur.reduce((s, r) => s + num(r[8]), 0) +
+    exemp.interReg + exemp.intraReg + exemp.interUnreg + exemp.intraUnreg;
+  if (Math.abs(r2(sheetTaxable) - r2(srcTotals.taxable)) > 1)
+    warnings.push(
+      `Reconciliation: saved invoices total taxable ${r2(srcTotals.taxable)} but the workbook represents ${r2(sheetTaxable)} - ${r2(srcTotals.taxable - sheetTaxable)} is missing.`,
+    );
+  if (excluded.length)
+    warnings.push(`${excluded.length} saved invoice(s) outside the selected period / deleted were not included (see console audit for the list).`);
+
+  console.groupCollapsed(`GSTR-1 ${opts.from} to ${opts.to} - source audit`);
+  console.log("SAVED INVOICES FETCHED FROM ERP (all time):", byId.size);
+  console.log("REAL INVOICES FOUND IN PERIOD:", details.length, "| reported:", trace.length, "| cancelled:", details.filter((d) => d.invoice.status === "cancelled").length);
+  console.table(trace);
+  console.log("CLASSIFICATION -> SOURCE INVOICE NUMBERS:", bySheetSources);
+  console.log("SOURCE TOTALS:", {
+    invoices: trace.length,
+    taxable: r2(srcTotals.taxable),
+    invoiceValue: r2(srcTotals.invoiceValue),
+    igst: r2(srcTotals.igst),
+    cgst: r2(srcTotals.cgst),
+    sgst: r2(srcTotals.sgst),
+    cess: r2(srcTotals.cess),
+  });
+  console.log("WORKBOOK TAXABLE REPRESENTED:", r2(sheetTaxable));
+  console.log("MISSING:", excluded.length, excluded);
+  console.log("UNCLASSIFIED:", unclassified.length);
   console.table(
     Object.fromEntries(
       GSTR1_SHEETS.slice(1).map((n) => [
