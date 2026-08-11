@@ -564,25 +564,37 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
         ]);
       }
     } else if (interState && invoiceValue > B2CL_LIMIT) {
-      classification = "B2CL";
-      for (const [rate, v] of rates) {
-        b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), 0, ""]);
+      // Unregistered + inter-state + invoice value above the B2CL threshold.
+      // Only taxable rates are reported here; 0% lines are already in exemp (8).
+      const taxableRates = rates.filter(([rate]) => rate > 0);
+      classification = taxableRates.length ? (taxableRates.length === rates.length ? "B2CL" : "B2CL+EXEMP") : "EXEMP";
+      for (const [rate, v] of taxableRates) {
+        b2cl.push([invoice.number, dmy(invoice.date), invoiceValue, place, "", rate, r2(v.taxable), r2(v.cess), ""]);
       }
     } else {
       // B2CS is aggregated on: supply type + place of supply + rate (+ e-commerce GSTIN).
       // Nil-rated / 0% lines belong to the exemp (8) table only, never to B2CS.
-      classification = rates.every(([rate]) => rate === 0) ? "EXEMP" : "B2CS";
+      const taxableRates = rates.filter(([rate]) => rate > 0);
+      classification = !taxableRates.length ? "EXEMP" : taxableRates.length === rates.length ? "B2CS" : "B2CS+EXEMP";
       for (const [rate, v] of rates) {
         if (rate === 0) continue;
         const type = interState ? "Inter-State" : "Intra-State";
         const key = `${type}|${place}|${rate}|`;
         const cur = b2csMap.get(key) || { type, pos: place, rate, taxable: 0, cess: 0 };
         cur.taxable += v.taxable;
+        cur.cess += v.cess;
         b2csMap.set(key, cur);
-        const set = b2csSources.get(key) || new Set<string>();
-        set.add(`${invoice.number}#${invoice._id}`);
-        b2csSources.set(key, set);
+        const src = b2csSources.get(key) || { sourceInvoiceIds: new Set<string>(), sourceInvoiceNumbers: new Set<string>(), sourceLineItemIds: new Set<string>() };
+        src.sourceInvoiceIds.add(String(invoice._id));
+        src.sourceInvoiceNumbers.add(String(invoice.number));
+        v.lineIds.forEach((id) => src.sourceLineItemIds.add(id));
+        b2csSources.set(key, src);
       }
+    }
+
+    if (!classification) {
+      classification = "UNCLASSIFIED";
+      warnings.push(`UNCLASSIFIED INVOICE ${invoice.number} (${invoice._id}): no GSTR-1 section could be determined from the saved data.`);
     }
 
     trace.push({
@@ -593,7 +605,10 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       registered: b2bGstin ? "Registered" : "Unregistered",
       date: dmy(invoice.date),
       placeOfSupply: place,
+      posSource: posInfo.source,
+      companyState: pos(company?.state, companyCode) || "(not set)",
       supply: interState ? "Inter-State" : "Intra-State",
+      supplySource,
       taxable: r2(invoice.taxable || 0),
       invoiceValue,
       igst: r2(savedIgst),
