@@ -387,8 +387,24 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   const b2csSources = new Map<string, Set<string>>();
 
   for (const { invoice, items } of details) {
-    if (invoice.status === "cancelled" || invoice.status === "deleted") continue;
-    if (seen.has(String(invoice._id))) continue;
+    if (invoice.status === "cancelled" || invoice.status === "deleted") {
+      excluded.push({
+        invoiceId: String(invoice._id),
+        number: invoice.number,
+        date: dateKey(invoice.date) || "(no date)",
+        reason: `status = ${invoice.status} (reported in docs (13) only)`,
+      });
+      continue;
+    }
+    if (seen.has(String(invoice._id))) {
+      excluded.push({
+        invoiceId: String(invoice._id),
+        number: invoice.number,
+        date: dateKey(invoice.date) || "(no date)",
+        reason: "duplicate transaction id",
+      });
+      continue;
+    }
     seen.add(String(invoice._id));
     activeInvoices.push(invoice);
 
@@ -396,22 +412,37 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     // GSTIN is read from the SAVED invoice first, then from the customer record.
     const gstin = pickGstin(invoice, cust);
     if (gstin && !GSTIN_RE.test(gstin))
-      warnings.push(`Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
+      warnings.push(`INVALID_GSTIN - Invoice ${invoice.number}: recipient GSTIN "${gstin}" is not a valid 15-character GSTIN - treated as unregistered (B2C).`);
     const b2bGstin = gstin && GSTIN_RE.test(gstin) ? gstin : "";
 
-    // Inter/intra is taken from the SAVED tax split on the invoice; the customer
-    // master (which may have been edited later) is only a fallback.
     const savedIgst = invoice.igst || 0;
     const savedCgst = (invoice.cgst || 0) + (invoice.sgst || 0);
-    const interState =
-      savedIgst > 0 ? true
-        : savedCgst > 0 ? false
-          : !!cust?.stateCode && !!company?.stateCode && cust.stateCode !== company.stateCode;
 
-    const place = interState
-      ? pos(cust?.state, cust?.stateCode)
-      : pos(cust?.state || company?.state, cust?.stateCode || company?.stateCode);
-    if (!place) warnings.push(`Invoice ${invoice.number}: missing place of supply (customer state).`);
+    // Place of supply: saved value on the invoice first, customer next.
+    const posInfo = resolvePos(invoice, cust, company);
+    const place = posInfo.pos;
+    const companyCode = codeOf(company?.stateCode, company?.gstin);
+
+    // Supply type: POS vs company state when both are known (authoritative),
+    // otherwise the SAVED tax split on the invoice.
+    let supplySource = "place of supply vs company state";
+    let interState: boolean;
+    if (posInfo.code && companyCode) {
+      interState = posInfo.code !== companyCode;
+      const bySplit = savedIgst > 0 ? true : savedCgst > 0 ? false : null;
+      if (bySplit !== null && bySplit !== interState) {
+        interState = bySplit; // saved tax is the legal record
+        supplySource = "saved tax split (conflicts with place of supply)";
+        warnings.push(
+          `Invoice ${invoice.number}: place of supply ${place} implies ${posInfo.code !== companyCode ? "inter" : "intra"}-state but the saved tax is ${bySplit ? "IGST" : "CGST/SGST"} - the saved tax split was used.`,
+        );
+      }
+    } else {
+      interState = savedIgst > 0 ? true : savedCgst > 0 ? false : false;
+      supplySource = "saved tax split";
+    }
+
+    if (!place) warnings.push(`Invoice ${invoice.number}: no place of supply saved on the invoice or the customer record.`);
     if (!invoice.date) warnings.push(`Invoice ${invoice.number}: missing invoice date.`);
     if (!items.length) warnings.push(`Invoice ${invoice.number}: no saved line items found - excluded from HSN summary.`);
 
@@ -428,13 +459,25 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     if (Math.abs(r2((invoice.taxable || 0) + headerTax) - invoiceValue) > 1)
       warnings.push(`Invoice ${invoice.number}: invoice total (${invoiceValue}) does not equal taxable + tax (${r2((invoice.taxable || 0) + headerTax)}).`);
 
-    // Rate-wise split built from the SAVED line items only.
-    const byRate = new Map<number, { taxable: number }>();
-    for (const it of items) {
+    // Rate-wise split built from the SAVED line items only (per line item, so an
+    // invoice with several GST rates produces one row per rate - never merged).
+    const byRate = new Map<number, { taxable: number; igst: number; cgst: number; sgst: number; cess: number; lineIds: string[] }>();
+    for (const [idx, it] of items.entries()) {
       const rate = it.gstPct || 0;
       const taxable = it.taxable || 0;
-      const cur = byRate.get(rate) || { taxable: 0 };
+      const rawIt = it as unknown as Record<string, unknown>;
+      const savedTax = it.gstAmount ?? taxable * (rate / 100);
+      const lIgst = typeof rawIt.igst === "number" ? rawIt.igst : interState ? savedTax : 0;
+      const lCgst = typeof rawIt.cgst === "number" ? rawIt.cgst : interState ? 0 : savedTax / 2;
+      const lSgst = typeof rawIt.sgst === "number" ? rawIt.sgst : interState ? 0 : savedTax / 2;
+      const lCess = typeof rawIt.cess === "number" ? rawIt.cess : 0;
+      const cur = byRate.get(rate) || { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, lineIds: [] };
       cur.taxable += taxable;
+      cur.igst += lIgst;
+      cur.cgst += lCgst;
+      cur.sgst += lSgst;
+      cur.cess += lCess;
+      cur.lineIds.push(String(it._id || `${invoice._id}#${idx}`));
       byRate.set(rate, cur);
 
       /* ---- HSN summary from saved line items ---- */
@@ -443,14 +486,18 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
         hsn = prodById.get(String(it.productId))?.hsn || "";
         warnings.push(`Invoice ${invoice.number}: item "${it.name}" has no HSN saved on the invoice${hsn ? " (product master value used)" : ""}.`);
       }
-      const key = `${hsn}|${rate}`;
-      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc: "PCS-PIECES", qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+      const uqc = (typeof rawIt.uqc === "string" && rawIt.uqc) || "PCS-PIECES";
+      const key = `${hsn}|${rate}|${uqc}`;
+      const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc, qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
       const qty = (it.boxes || 0) * (it.boxSize || 1) + (it.pieces || 0);
-      const tax = it.gstAmount ?? taxable * (rate / 100); // saved tax amount preferred
+      const tax = savedTax; // saved tax amount preferred
       h.qty += qty;
       h.taxable += taxable;
       h.value += it.amount ?? taxable + tax;
-      if (interState) h.igst += tax; else { h.cgst += tax / 2; h.sgst += tax / 2; }
+      h.igst += lIgst;
+      h.cgst += lCgst;
+      h.sgst += lSgst;
+      h.cess += lCess;
       hsnMap.set(key, h);
 
       /* ---- nil rated / exempt / non-GST (8) ---- */
