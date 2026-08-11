@@ -115,6 +115,74 @@ function pos(state?: string, code?: string) {
   return `${(code || "").padStart(2, "0")}-${state || ""}`.replace(/^-/, "");
 }
 
+/** State code -> name, used only to render a saved POS code as "27-Maharashtra". */
+const STATE_NAMES: Record<string, string> = {
+  "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+  "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+  "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+  "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+  "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+  "26": "Dadra & Nagar Haveli and Daman & Diu", "27": "Maharashtra", "29": "Karnataka",
+  "30": "Goa", "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu", "34": "Puducherry",
+  "35": "Andaman & Nicobar Islands", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+  "97": "Other Territory",
+};
+
+/** Reads a state code from any saved field / a GSTIN prefix. */
+function codeOf(...vals: unknown[]): string {
+  for (const v of vals) {
+    if (typeof v === "number" && v > 0) return String(v).padStart(2, "0");
+    if (typeof v === "string") {
+      const m = v.trim().match(/^(\d{1,2})/);
+      if (m) return m[1].padStart(2, "0");
+    }
+  }
+  return "";
+}
+
+/**
+ * Place of supply, SAVED VALUE FIRST.
+ * Order: value saved on the invoice snapshot -> customer state -> (intra only)
+ * company state. Never defaults to any hard-coded state.
+ */
+function resolvePos(
+  invoice: Invoice,
+  cust?: Customer,
+  company?: Company | null,
+): { pos: string; code: string; source: string } {
+  const raw = invoice as unknown as Record<string, unknown>;
+  const savedText = [raw.placeOfSupply, raw.pos, raw.placeOfSupplyName].find(
+    (v) => typeof v === "string" && (v as string).trim(),
+  ) as string | undefined;
+  const savedCode = codeOf(raw.placeOfSupplyCode, raw.posCode, raw.stateCode, savedText);
+  if (savedText && /^\d{1,2}\s*-\s*\S/.test(savedText.trim()))
+    return { pos: savedText.trim().replace(/\s*-\s*/, "-"), code: savedCode, source: "invoice snapshot" };
+  if (savedCode)
+    return {
+      pos: pos(STATE_NAMES[savedCode] || (savedText || "").replace(/^\d+\s*-?\s*/, ""), savedCode),
+      code: savedCode,
+      source: "invoice snapshot",
+    };
+  if (savedText) return { pos: savedText.trim(), code: "", source: "invoice snapshot" };
+
+  const custCode = codeOf(cust?.stateCode, cust?.gstin);
+  if (custCode || cust?.state)
+    return {
+      pos: pos(cust?.state || STATE_NAMES[custCode], custCode),
+      code: custCode,
+      source: "customer record",
+    };
+
+  const compCode = codeOf(company?.stateCode, company?.gstin);
+  if (compCode || company?.state)
+    return {
+      pos: pos(company?.state || STATE_NAMES[compCode], compCode),
+      code: compCode,
+      source: "company state (fallback)",
+    };
+  return { pos: "", code: "", source: "none" };
+}
+
 export interface Gstr1Options {
   from: string; // yyyy-mm-dd
   to: string;   // yyyy-mm-dd
