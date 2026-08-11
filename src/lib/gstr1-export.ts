@@ -517,7 +517,14 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     if (!rates.length) {
       const headerTaxable = invoice.taxable || 0;
       const derivedRate = headerTaxable > 0 ? Math.round((headerTax / headerTaxable) * 100 * 100) / 100 : 0;
-      rates = [[derivedRate, { taxable: headerTaxable }]];
+      rates = [[derivedRate, {
+        taxable: headerTaxable,
+        igst: savedIgst,
+        cgst: invoice.cgst || 0,
+        sgst: invoice.sgst || 0,
+        cess: 0,
+        lineIds: [],
+      }]];
       warnings.push(
         `Invoice ${invoice.number}: no saved line items were returned - reported from the saved invoice header (taxable ${r2(headerTaxable)}, rate ${derivedRate}%), and excluded from the HSN summary.`,
       );
