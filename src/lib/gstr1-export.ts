@@ -795,9 +795,20 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       ]),
     ),
   );
-  console.table(trace);
   console.log("SOURCE -> EXCEL ROW TRACE:", cellTrace);
-  console.log("B2CS aggregate -> source invoices:", Object.fromEntries([...b2csSources].map(([k, v]) => [k, [...v]])));
+  console.log(
+    "B2CS aggregate -> source invoices:",
+    Object.fromEntries(
+      [...b2csSources].map(([k, v]) => [
+        k,
+        {
+          sourceInvoiceIds: [...v.sourceInvoiceIds],
+          sourceInvoiceNumbers: [...v.sourceInvoiceNumbers],
+          sourceLineItemIds: [...v.sourceLineItemIds],
+        },
+      ]),
+    ),
+  );
   console.groupEnd();
   /* eslint-enable no-console */
 
