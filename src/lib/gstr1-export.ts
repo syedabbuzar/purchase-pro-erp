@@ -393,7 +393,20 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       }
     }
 
-    const rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
+    let rates = [...byRate.entries()].sort((a, b) => a[0] - b[0]);
+
+    // SAFETY NET for older bills: if the saved line items could not be loaded
+    // (or were never stored), the invoice must still be reported. The rate is
+    // derived from the SAVED header tax vs SAVED header taxable value - no
+    // product-master lookup, no fabricated amounts.
+    if (!rates.length) {
+      const headerTaxable = invoice.taxable || 0;
+      const derivedRate = headerTaxable > 0 ? Math.round((headerTax / headerTaxable) * 100 * 100) / 100 : 0;
+      rates = [[derivedRate, { taxable: headerTaxable }]];
+      warnings.push(
+        `Invoice ${invoice.number}: no saved line items were returned - reported from the saved invoice header (taxable ${r2(headerTaxable)}, rate ${derivedRate}%), and excluded from the HSN summary.`,
+      );
+    }
 
     let classification = "";
     // Real credit/debit-note detection: the ERP has no note model, so the only
