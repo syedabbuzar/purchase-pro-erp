@@ -490,7 +490,9 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
         hsn = prodById.get(String(it.productId))?.hsn || "";
         warnings.push(`Invoice ${invoice.number}: item "${it.name}" has no HSN saved on the invoice${hsn ? " (product master value used)" : ""}.`);
       }
-      const uqc = (typeof rawIt.uqc === "string" && rawIt.uqc) || "PCS-PIECES";
+      const prod = prodById.get(String(it.productId));
+      const uqc =
+        (typeof rawIt.uqc === "string" && rawIt.uqc) || uqcOf(prod?.unit) || "PCS-PIECES";
       const key = `${hsn}|${rate}|${uqc}`;
       const h = hsnMap.get(key) || { hsn, desc: it.name || "", uqc, qty: 0, value: 0, rate, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
       const qty = (it.boxes || 0) * (it.boxSize || 1) + (it.pieces || 0);
@@ -504,11 +506,24 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       h.cess += lCess;
       hsnMap.set(key, h);
 
-      /* ---- nil rated / exempt / non-GST (8) ---- */
+      /* ---- nil rated / exempt / non-GST (8) ----
+       * A 0% saved rate is NOT accepted as exempt on its own. It is confirmed
+       * against the product master rate for the same item. When the product
+       * master says the item IS taxable, the line is flagged as an exception
+       * (missing historical taxability) instead of being silently reported as
+       * nil-rated. */
       if (rate === 0) {
-        if (b2bGstin) {
-          if (interState) exemp.interReg += taxable; else exemp.intraReg += taxable;
-        } else if (interState) exemp.interUnreg += taxable; else exemp.intraUnreg += taxable;
+        const masterRate = prod?.gstPct;
+        if (masterRate === undefined || masterRate === 0) {
+          if (b2bGstin) {
+            if (interState) exemp.interReg += taxable; else exemp.intraReg += taxable;
+          } else if (interState) exemp.interUnreg += taxable; else exemp.intraUnreg += taxable;
+          nilLines++;
+        } else {
+          exceptions.push(
+            `TAXABILITY_EXCEPTION - Invoice ${invoice.number}, item "${it.name}": the saved line has no GST rate, but the product master rate is ${masterRate}%. Missing field: historical gstPct/tax amount on the invoice line. Not reported as exempt.`,
+          );
+        }
       }
     }
 
