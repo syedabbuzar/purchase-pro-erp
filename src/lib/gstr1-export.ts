@@ -792,6 +792,10 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   if (unclassified.length)
     warnings.push(`${unclassified.length} saved invoice(s) could not be classified: ${unclassified.map((t) => t.number).join(", ")}.`);
 
+  /** Hard reconciliation failures - the workbook is NOT reported as successful. */
+  const issues: string[] = [...exceptions];
+  warnings.push(...exceptions);
+
   // Workbook taxable total (B2B + B2CL + B2CS + CDNR/CDNUR + nil-rated) must
   // match the sum of the saved invoice taxable values.
   const sheetTaxable =
@@ -802,7 +806,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     cdnur.reduce((s, r) => s + num(r[8]), 0) +
     exemp.interReg + exemp.intraReg + exemp.interUnreg + exemp.intraUnreg;
   if (Math.abs(r2(sheetTaxable) - r2(srcTotals.taxable)) > 1)
-    warnings.push(
+    issues.push(
       `Reconciliation: saved invoices total taxable ${r2(srcTotals.taxable)} but the workbook represents ${r2(sheetTaxable)} - ${r2(srcTotals.taxable - sheetTaxable)} is missing.`,
     );
   if (excluded.length)
@@ -815,10 +819,36 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   );
   (["igst", "cgst", "sgst", "cess"] as const).forEach((k) => {
     if (Math.abs(r2(hsnTotals[k]) - r2(srcTotals[k])) > 1)
-      warnings.push(
+      issues.push(
         `Reconciliation: saved invoices total ${k.toUpperCase()} ${r2(srcTotals[k])} but the HSN sheet represents ${r2(hsnTotals[k])}.`,
       );
   });
+  for (const [name, mark] of Object.entries(valueChecks))
+    if (mark !== "PASS") issues.push(`Workbook verification failed for sheet "${name}": ${mark}.`);
+  const dupNumbers = [...new Set(numbers.filter((n, i) => numbers.indexOf(n) !== i))];
+  if (dupNumbers.length) issues.push(`Duplicate invoice numbers in period: ${dupNumbers.join(", ")}.`);
+  warnings.push(...issues.filter((i) => !warnings.includes(i)));
+
+  /* ---- Phase 8 validation summary (all values calculated, never hardcoded) ---- */
+  const cls = (k: string) => (bySheetSources[k] || []).length;
+  const validation: Record<string, number> = {
+    "Total invoices in period": details.length,
+    "Reported (active)": trace.length,
+    "Cancelled (docs 13 only)": cancelled,
+    "B2B invoices": cls("B2B"),
+    "B2C invoices": cls("B2CS") + cls("B2CS+EXEMP") + cls("B2CL") + cls("B2CL+EXEMP"),
+    "Export invoices": 0,
+    "Advance receipts": 0,
+    "Advance adjustments": 0,
+    "Exempt / nil / non-GST lines": nilLines,
+    "Invoice line items": lineCount,
+    "HSN rows": hsnMap.size,
+    "Unique HSN+rate combinations": new Set([...hsnMap.values()].map((h) => `${h.hsn}|${h.rate}`)).size,
+    "Unclassified invoices": unclassified.length,
+    "Credit / debit notes": cdnr.length + cdnur.length,
+    "Duplicate invoice numbers": dupNumbers.length,
+    "Data exceptions": exceptions.length,
+  };
 
   const classCounts = Object.fromEntries(Object.entries(bySheetSources).map(([k, v]) => [k, v.length]));
 
