@@ -192,6 +192,10 @@ export interface Gstr1Result {
   fileName: string;
   warnings: string[];
   counts: Record<string, number>;
+  /** Phase 8 - dynamically calculated pre-export validation summary. */
+  validation: Record<string, number>;
+  /** Phase 9 - post-export reconciliation outcome. */
+  reconciliation: { ok: boolean; issues: string[] };
 }
 
 /* ------------------------------------------------------------------
