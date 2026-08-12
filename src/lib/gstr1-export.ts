@@ -896,16 +896,19 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
   console.groupEnd();
   /* eslint-enable no-console */
 
-  // Download the exact bytes that were verified above.
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Reconciliation gate: a workbook is only downloaded when it reconciles with
+  // the saved ERP data. A failure is surfaced instead of a "successful" file.
+  if (!issues.length) {
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   return {
     fileName,
@@ -916,6 +919,8 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
       hsn: verified.hsn ?? 0, docs: verified.docs ?? 0,
       invoices: activeInvoices.length, cancelled,
     },
+    validation,
+    reconciliation: { ok: issues.length === 0, issues },
   };
 }
 
