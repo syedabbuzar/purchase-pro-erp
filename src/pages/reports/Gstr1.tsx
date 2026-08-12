@@ -29,7 +29,10 @@ function Gstr1() {
       setBusy(true);
       const res = await generateGstr1Workbook({ from, to });
       setResult(res);
-      toast.success(`GSTR-1 workbook generated (${res.counts.invoices} invoices)`);
+      if (res.reconciliation.ok)
+        toast.success(`GSTR-1 workbook generated (${res.counts.invoices} invoices)`);
+      else
+        toast.error("Reconciliation failed — file not downloaded. See the mismatch list below.");
     } catch (e) {
       toast.error(apiErrorMessage(e));
     } finally {
@@ -86,11 +89,29 @@ function Gstr1() {
       {result && (
         <Card>
           <CardContent className="p-4 space-y-2 text-sm">
-            <div className="font-semibold">Generated: {result.fileName}</div>
+            <div className="font-semibold">
+              {result.reconciliation.ok ? "Generated" : "NOT generated (reconciliation failed)"}: {result.fileName}
+            </div>
             <div className="text-muted-foreground">
               B2B rows: {result.counts.b2b} · B2CL: {result.counts.b2cl} · B2CS: {result.counts.b2cs} ·
               HSN: {result.counts.hsn} · Cancelled documents: {result.counts.cancelled}
             </div>
+            <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 rounded border p-3">
+              {Object.entries(result.validation).map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">{k}</span>
+                  <span className="font-medium tabular-nums">{v}</span>
+                </div>
+              ))}
+            </div>
+            {!result.reconciliation.ok && (
+              <div className="space-y-1">
+                <div className="font-semibold text-destructive">Reconciliation mismatches</div>
+                <ul className="list-disc pl-5 text-muted-foreground">
+                  {result.reconciliation.issues.map((i) => <li key={i}>{i}</li>)}
+                </ul>
+              </div>
+            )}
             {result.warnings.length > 0 && (
               <div className="space-y-1">
                 <div className="font-semibold text-destructive">Validation warnings</div>
