@@ -485,6 +485,7 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
     // invoice with several GST rates produces one row per rate - never merged).
     const byRate = new Map<number, { taxable: number; igst: number; cgst: number; sgst: number; cess: number; lineIds: string[] }>();
     for (const [idx, it] of items.entries()) {
+      lineCount++;
       const rate = it.gstPct || 0;
       const taxable = it.taxable || 0;
       const rawIt = it as unknown as Record<string, unknown>;
