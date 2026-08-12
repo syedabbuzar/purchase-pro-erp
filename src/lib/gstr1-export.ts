@@ -224,6 +224,20 @@ export interface Gstr1Result {
 /** B2CL rule: inter-state supply to an unregistered person, invoice value > 2.5 lakh. */
 const B2CL_LIMIT = 250000;
 
+/** Maps the ERP unit saved on the product master to a GST UQC code. */
+const UQC_MAP: Record<string, string> = {
+  PCS: "PCS-PIECES", PC: "PCS-PIECES", NOS: "NOS-NUMBERS", NO: "NOS-NUMBERS",
+  BOX: "BOX-BOX", BOX_: "BOX-BOX", KG: "KGS-KILOGRAMS", KGS: "KGS-KILOGRAMS",
+  GM: "GMS-GRAMMES", GMS: "GMS-GRAMMES", LTR: "LTR-LITRE", L: "LTR-LITRE",
+  ML: "MLT-MILILITRE", MLT: "MLT-MILILITRE", PKT: "PAC-PACKS", PAC: "PAC-PACKS",
+  BAG: "BAG-BAGS", BTL: "BTL-BOTTLES", DOZ: "DOZ-DOZEN", UNT: "UNT-UNITS",
+};
+function uqcOf(unit?: string): string {
+  if (!unit) return "";
+  const u = unit.trim().toUpperCase();
+  return UQC_MAP[u] || (/^[A-Z]{3}-/.test(u) ? u : "");
+}
+
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
 
 /** Reads a GSTIN from any of the field names the ERP/backend may use. */
@@ -387,6 +401,10 @@ export async function generateGstr1Workbook(opts: Gstr1Options): Promise<Gstr1Re
 
   const activeInvoices: Invoice[] = [];
   const seen = new Set<string>();
+  /** Historical rows that cannot be classified safely - never silently dropped. */
+  const exceptions: string[] = [];
+  let nilLines = 0;
+  let lineCount = 0;
   const trace: Record<string, unknown>[] = [];
   const b2csSources = new Map<string, { sourceInvoiceIds: Set<string>; sourceInvoiceNumbers: Set<string>; sourceLineItemIds: Set<string> }>();
 
